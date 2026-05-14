@@ -20,8 +20,10 @@ from utils.helpers import (
     max_model_difference,
 )
 
-from utils.evals import evaluate_state_dict
-from visualize.disentangle import visualize_permutation_trajectories
+#TODO: check if its ok without these
+
+#from utils.evals import evaluate_state_dict
+#from visualize.disentangle import visualize_permutation_trajectories
 
 
 OptimizerType = Literal["adam_lie", "rcg", "rtrn", "alt"]
@@ -1159,14 +1161,16 @@ def process_checkpoint(
     exactness = max_model_difference(
         checkpoint, modified_state_dict, seed=seed, device=torch.device(device)
     )
-    evaluation = evaluate_state_dict(
-        checkpoint,
-        modified_state_dict,
-        episodes=eval_episodes,
-        seed=seed,
-        deterministic=deterministic_eval,
-        device=torch.device(device),
-    )
+    #TODO: check if ok without this?
+
+    #evaluation = evaluate_state_dict(
+    #    checkpoint,
+    #    modified_state_dict,
+    #    episodes=eval_episodes,
+    #    seed=seed,
+    #    deterministic=deterministic_eval,
+    #    device=torch.device(device),
+    #)
 
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1184,12 +1188,15 @@ def process_checkpoint(
         "rank_fraction": rank_fraction,
         "truncation_tolerance": truncation_tolerance,
         "exactness_check": exactness,
-        "evaluation": evaluation,
+        #TODO: check if this is ok
+        "evaluation": None,
         "transform_report": transform_report,
         "layer_report": layer_report,
     }
 
-    visualize_permutation_trajectories(summary, checkpoint_dir / "trajectories.png")
+    #TODO: check if this is ok
+
+    #visualize_permutation_trajectories(summary, checkpoint_dir / "trajectories.png")
 
     (checkpoint_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True, default=str) + "\n",

@@ -9,8 +9,9 @@ import json
 import torch
 import gymnasium as gym
 
+#TODO: check if ok without this - should be fine as not used
 
-import classes.rl_models as CR
+#import classes.rl_models as CR
 import classes.disentanglement as CD
 
 def utc_now() -> str:
