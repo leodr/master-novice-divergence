@@ -20,6 +20,7 @@ from tensor_disentanglement_code.utils.helpers import (
     max_model_difference,
 )
 
+
 #TODO: check if its ok without these
 
 #from utils.evals import evaluate_state_dict
@@ -784,6 +785,8 @@ def disentangle_tensor4d(
     torch.manual_seed(seed)
     np.random.seed(seed)
 
+
+    #TODO: Careful: change to float32 if using mps
     tensor_4d = tensor_4d.detach().clone().to(dtype=torch.float64, device=device)
     shape_4d = CD.TensorShape4D(*[int(dim) for dim in tensor_4d.shape])
     base_matrix = tensor4d_to_matrix(tensor_4d)

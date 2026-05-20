@@ -1,6 +1,5 @@
 
-#TODO: 1) implement truncation of a given result after disentangling
-#TODO: 2) Use 1) on small model, test results
+#Can largely ignore this, just some tests for disentanglement workings and compression
 
 from huggingface_hub import hf_hub_download
 import torch
