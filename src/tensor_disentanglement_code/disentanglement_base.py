@@ -7,12 +7,12 @@ import math
 import torch
 import numpy as np
 
-import classes.disentanglement as CD
+import tensor_disentanglement_code.classes.disentanglement as CD
 
-from utils.permutation import (
+from tensor_disentanglement_code.utils.permutation import (
     spectrum_stats_from_permuted_matrix,
 )
-from utils.helpers import (
+from tensor_disentanglement_code.utils.helpers import (
     mark_layer,
     choose_tensor_shape,
     matrix_to_tensor4d,

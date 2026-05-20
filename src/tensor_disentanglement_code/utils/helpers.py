@@ -12,7 +12,7 @@ import gymnasium as gym
 #TODO: check if ok without this - should be fine as not used
 
 #import classes.rl_models as CR
-import classes.disentanglement as CD
+import tensor_disentanglement_code.classes.disentanglement as CD
 
 def utc_now() -> str:
     return datetime.now(tz=UTC).replace(microsecond=0).isoformat()

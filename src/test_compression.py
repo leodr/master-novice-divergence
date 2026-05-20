@@ -116,8 +116,8 @@ def accuracy_measure(model, dataset, batch_size):
     print("CE loss:", avg_loss)
     print("Accuracy:", accuracy)
 
-from tensor_disentanglement_code.disentanglement_base import disentangle_matrix_via_reshape, _apply_A, _apply_A_inv
-from tensor_disentanglement_code.classes.disentanglement import Matrix2DDisentanglementResult
+from src.tensor_disentanglement_code.disentanglement_base import disentangle_matrix_via_reshape, _apply_A, _apply_A_inv
+from src.tensor_disentanglement_code.classes.disentanglement import Matrix2DDisentanglementResult
 
 def choose_k(singular_values: torch.Tensor, threshold : float) -> int:
     energies = singular_values ** 2

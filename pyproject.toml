@@ -1,7 +1,7 @@
 [project]
-name = "reward-density-quality"
+name = "tensor-disentanglement-code"
 version = "0.1.0"
-description = "Add your description here"
+description = "Tensor disentanglement experiments"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -12,4 +12,17 @@ dependencies = [
     "torchvision>=0.23.0",
     "tqdm>=4.67.3",
     "transformers>=5.8.0",
+    "datasets",
+    "huggingface-hub",
+    "gymnasium"
 ]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

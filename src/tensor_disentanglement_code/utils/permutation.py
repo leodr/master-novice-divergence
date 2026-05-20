@@ -2,9 +2,9 @@ import math
 
 import torch
 
-import classes.disentanglement as CD
+import tensor_disentanglement_code.classes.disentanglement as CD
 
-from utils.helpers import choose_tensor_shape, matrix_to_tensor4d
+from tensor_disentanglement_code.utils.helpers import choose_tensor_shape, matrix_to_tensor4d
 
 def permuted_matricization(tensor_4d: torch.Tensor) -> torch.Tensor:
     if tensor_4d.ndim != 4:
