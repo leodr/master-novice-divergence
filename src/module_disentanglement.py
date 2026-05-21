@@ -4,11 +4,50 @@ import torch.nn as nn
 import tensor_disentanglement_code.disentanglement_base as DB
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+import copy
 
 #TODO: probably need a DisentangledAttention class as well 
-#class DisentangledAttention(nn.Module):
+
+class DisentangledMultiheadAttention(nn.Module):
+
+    def __init__(self, embed_dim, num_heads):
+        super().__init__()
+
+        self.attn = nn.MultiheadAttention(
+            embed_dim,
+            num_heads
+        )
+
+    #TODO: decide if necessary
+    def get_qkv_weights(self):
+        d = self.attn.embed_dim
+        W = self.attn.in_proj_weight
+
+        Wq = W[:d]
+        Wk = W[d:2*d]
+        Wv = W[2*d:]
+
+        return Wq, Wk, Wv
+    
+    @classmethod
+    def from_disentangled(cls, embed_dim, num_heads, Wq, Wk, Wv, I_bias, output_layer):
+        layer = cls(embed_dim, num_heads)
+        with torch.no_grad():
+            layer.attn.in_proj_weight.copy_(
+                torch.cat([Wq, Wk, Wv], dim=0)
+            )
+            layer.attn.in_proj_bias.copy_(
+                I_bias
+            )
+            setattr(layer.attn, "out_proj", output_layer)
+
+        return layer
+
+    def forward(self, query, key, value):
+        return self.attn(query, key, value)
 
 
+#TODO: maybe simplify this? Doesn't seem like the parameter reduction is that important
 #Class from Leonhard's original notebook
 class DisentangledLinear(nn.Module):
     """Linear layer parameterized as  y = (Q^T · A^{-1}(U · diag(s) · V^T)) x + b.
@@ -66,16 +105,10 @@ class DisentangledLinear(nn.Module):
     def forward(self, x):
         return torch.nn.functional.linear(x, self.materialize_weight(), self.bias)
 
-#Largely also taken from Leonhards original notebook
-def linear_to_disentangled_linear(linear_layer: nn.Linear, rank_fraction: float):
-    W = linear_layer.weight.detach().clone()
-    in_features = W.shape[1]
-    out_features = W.shape[0]
-
-    #No logging for now, maybe add back later
-    result = DB.disentangle_matrix_via_reshape(
-    W,
-    steps=120,
+def disentangle(weight_matrix, rank_fraction: float):
+    return DB.disentangle_matrix_via_reshape(
+    weight_matrix,
+    steps=100,
     learning_rate=0.05,
     seed=0,
     device="cpu",
@@ -83,9 +116,10 @@ def linear_to_disentangled_linear(linear_layer: nn.Linear, rank_fraction: float)
     rank_selection="fixed_heuristic",
     rank_fraction=rank_fraction,
     log_prefix="W1",
-    log_every=20
+    log_every=10
     )
 
+def get_SVD_from_result(W, result):
     inner = result.inner
     Q = inner.best_q             
     shape4d = result.tensor_shape_4d
@@ -98,30 +132,85 @@ def linear_to_disentangled_linear(linear_layer: nn.Linear, rank_fraction: float)
     QW = Q @ W64
     permuted = DB._apply_A(QW, shape_tuple)                     # (448, 448)
     U, S, Vh = torch.linalg.svd(permuted, full_matrices=False)
-    S_trunc = S.clone()
-    S_trunc[keep_rank:] = 0
-    permuted_trunc = (U * S_trunc) @ Vh
-    QW_trunc = DB._apply_A_inv(permuted_trunc, shape_tuple)
-    W_prime = (Q.transpose(-1, -2) @ QW_trunc).to(W.dtype)
+    return Q, U, S, Vh, keep_rank, shape_tuple
 
-    layer_ft = DisentangledLinear.from_disentangled(
+def reconstruct_weight_from_SVD(Q, U, S, V, keep_rank, shape_4d):
+        #Test
+        l, r, b, c = shape_4d
+        M_perm = (U[:, :keep_rank] * S[:keep_rank]) @ V[:keep_rank]                       # (l*c, r*b)
+        M = M_perm.reshape(l, c, r, b).permute(0, 2, 3, 1).reshape(l * r, b * c)
+        return Q.t() @ M
+
+
+#Largely also taken from Leonhards original notebook
+def disentangle_linear(linear_layer: nn.Linear, rank_fraction: float):
+    W = linear_layer.weight.detach().clone()
+    in_features = W.shape[1]
+    out_features = W.shape[0]
+
+    #No logging for now, maybe add back later
+    result = disentangle(W, rank_fraction)
+
+    Q, U, S, Vh, keep_rank, shape_tuple = get_SVD_from_result(W, result)
+
+
+    return DisentangledLinear.from_disentangled(
     in_features, out_features, keep_rank, shape_tuple,
     Q=Q, U=U, S=S, Vh=Vh, bias=linear_layer.bias.detach(),
     )
 
-    return layer_ft
+
+def get_attention_weights(attention_layer: nn.MultiheadAttention):
+    d = attention_layer.embed_dim
+    W = attention_layer.in_proj_weight
+
+    Wq = W[:d]
+    Wk = W[d:2*d]
+    Wv = W[2*d:]
+
+    return Wq.detach().clone(), Wk.detach().clone(), Wv.detach().clone()
 
 #TODO: implement disentanglement for attention layer
-def disentangle_attention(attention_layer: nn.MultiheadAttention):
-    return
+def disentangle_attention(attention_layer: nn.MultiheadAttention, rank_fraction: float):
+    Wq, Wk, Wv = get_attention_weights(attention_layer)
+    I_bias = attention_layer.in_proj_bias
+    result_q = disentangle(Wq, rank_fraction)
+    result_k = disentangle(Wk, rank_fraction)
+    result_v = disentangle(Wv, rank_fraction)
 
-def disentangle_module(module: nn.Module, rank_fraction: int = 0.1):
-    for name, child in module.named_children():
+    Q_q, U_q, S_q, Vh_q, keep_rank_q, shape_tuple_q = get_SVD_from_result(Wq, result_q)
+    Q_k, U_k, S_k, Vh_k, keep_rank_k, shape_tuple_k = get_SVD_from_result(Wk, result_k)
+    Q_v, U_v, S_v, Vh_v, keep_rank_v, shape_tuple_v = get_SVD_from_result(Wv, result_v)
+
+    Wq_trunc = reconstruct_weight_from_SVD(Q_q, U_q, S_q, Vh_q, keep_rank_q, shape_tuple_q)
+    Wk_trunc = reconstruct_weight_from_SVD(Q_k, U_k, S_k, Vh_k, keep_rank_k, shape_tuple_k)
+    Wv_trunc = reconstruct_weight_from_SVD(Q_v, U_v, S_v, Vh_v, keep_rank_v, shape_tuple_v)
+
+    output_layer = disentangle_linear(attention_layer.out_proj, rank_fraction)
+
+    return DisentangledMultiheadAttention.from_disentangled(attention_layer.embed_dim, 
+                                                     attention_layer.num_heads,
+                                                     Wq_trunc,
+                                                     Wk_trunc,
+                                                     Wv_trunc,
+                                                     I_bias,
+                                                     output_layer)
+    
+
+
+def disentangle_module(module: nn.Module, rank_fraction: float = 0.1):
+    module_copy = copy.deepcopy(module) 
+    for name, child in module_copy.named_children():
         if isinstance(child, nn.Linear):
-            setattr(module, name, linear_to_disentangled_linear(child, rank_fraction))
+            print(f"{name}: {child}")
+            setattr(module_copy, name, disentangle_linear(child, rank_fraction))
+        elif isinstance(child, nn.MultiheadAttention):
+            print(f"{name}: {child}")
+            setattr(module_copy, name, disentangle_attention(child, rank_fraction))
         else:
-            disentangle_module(child)
-    return module
+            setattr(module_copy, name, disentangle_module(child, rank_fraction))
+    
+    return module_copy
 
 #Generated by ChatGPT
 def print_layers_with_params(model: nn.Module):
@@ -131,11 +220,11 @@ def print_layers_with_params(model: nn.Module):
         num_params = sum(p.numel() for p in module.parameters(recurse=False))
         print(f"{name:30} {module.__class__.__name__:20} params={num_params}")
 
-def test_disentanglement_form(test_object: nn.Module):
+def test_disentanglement_form(test_object: nn.Module, rank_fraction : float = 0.1):
     print("Original model: ")
     print_layers_with_params(test_object)
 
-    disentagled_test_object = disentangle_module(test_object)
+    disentagled_test_object = disentangle_module(test_object, rank_fraction)
 
     print()
     print("Disentangled model: ")
@@ -195,12 +284,12 @@ test_object_lin = nn.Sequential(
     nn.Linear(hidden, 10),
 )
 test_object_trans = nn.Transformer(
-    d_model=128,
+    d_model=64,
     nhead=4,
-    num_encoder_layers=2,
-    num_decoder_layers=2
+    num_encoder_layers=1,
+    num_decoder_layers=1
 )
-test_disentanglement_form(test_object_trans)
+#test_disentanglement_form(test_object_trans)
 
 
 
