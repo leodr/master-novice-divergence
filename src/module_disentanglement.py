@@ -5,6 +5,7 @@ import tensor_disentanglement_code.disentanglement_base as DB
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 import copy
+from tensor_disentanglement_code.utils.helpers import choose_tensor_shape
 
 #TODO: probably need a DisentangledAttention class as well 
 
@@ -273,6 +274,26 @@ def test_disentanglement_function(
     print("Disentangled model: ")
     print_average_loss(disentangle_module(test_object), dataloader, criterion, device)
 
+
+#TODO: careful only works with default disentanglement method for now - do we even need the linear class to be so complicated?
+def build_disentangled_structure(module: nn.Module, rank_fraction: int):
+    module_copy = copy.deepcopy(module) 
+    for name, child in module_copy.named_children():
+        if isinstance(child, nn.Linear):
+            print(f"{name}: {child}")
+            shape_4d = choose_tensor_shape(child.weight)
+            shape_tuple = (
+                shape_4d.left_outer, shape_4d.left_inner,
+                shape_4d.right_outer, shape_4d.right_inner,
+            )
+            setattr(module_copy, name, DisentangledLinear(child.weight.shape[1], child.weight.shape[0], DB._default_keep_rank_from_shape(shape_tuple, rank_fraction), shape_tuple))
+        elif isinstance(child, nn.MultiheadAttention):
+            print(f"{name}: {child}")
+            setattr(module_copy, name, DisentangledMultiheadAttention(child.embed_dim, child.num_heads))
+        else:
+            setattr(module_copy, name, build_disentangled_structure(child, rank_fraction))
+    
+    return module_copy
 
 
 hidden = 256
