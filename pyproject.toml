@@ -14,7 +14,8 @@ dependencies = [
     "transformers>=5.8.0",
     "datasets",
     "huggingface-hub",
-    "gymnasium"
+    "gymnasium",
+    "lm-eval>=0.4.12",
 ]
 
 [build-system]
