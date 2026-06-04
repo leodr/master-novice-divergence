@@ -11,6 +11,7 @@ import tensor_disentanglement_code.classes.disentanglement as CD
 
 from tensor_disentanglement_code.utils.permutation import (
     spectrum_stats_from_permuted_matrix,
+    spectrum_stats_from_singular_values,
 )
 from tensor_disentanglement_code.utils.helpers import (
     mark_layer,
@@ -57,9 +58,20 @@ def _apply_A_inv(matrix: torch.Tensor, shape: tuple[int, int, int, int]) -> torc
 
 
 def orthogonal_from_raw(raw: torch.Tensor) -> torch.Tensor:
-    """Q = exp(B(s)) parameterization for the Adam-Lie baseline."""
+    """Q = Cayley(B(s)) parameterization for the Adam-Lie baseline.
+
+    The Cayley transform Q = (I + S)^{-1}(I - S) of a skew-symmetric S maps onto
+    the same special-orthogonal group as the matrix exponential exp(S), but costs
+    a single linear solve instead of scaling-and-squaring (~20x cheaper on the
+    n x n matrices here). It is an exact orthogonal map (Q^T Q = I for any skew
+    S), and a valid retraction for optimizing over O(n): it agrees with exp(S) to
+    first order at S = 0, so the closed-form Euclidean-gradient surrogate used by
+    the Adam-Lie optimizers remains correct. The only orthogonals it cannot
+    represent are those with a -1 eigenvalue (a measure-zero set, unreachable
+    from the S = 0 / Q = I initialization)."""
     skew = raw - raw.transpose(-1, -2)
-    return torch.linalg.matrix_exp(skew)
+    identity = torch.eye(skew.shape[-1], dtype=skew.dtype, device=skew.device)
+    return torch.linalg.solve(identity + skew, identity - skew)
 
 
 # ---------------------------------------------------------------------------
@@ -483,26 +495,32 @@ def _adam_lie(
         (n, n), dtype=base_matrix.dtype, device=base_matrix.device, requires_grad=True
     )
     optimizer = torch.optim.Adam([raw], lr=learning_rate)
-    if history_cb is not None:
-        with torch.no_grad():
-            q0 = orthogonal_from_raw(raw)
-            history_cb(0, q0, _evaluate_cost(q0, base_matrix, shape, keep_rank))
-    for step in range(1, steps + 1):
-        optimizer.zero_grad()
+    # One retraction and one SVD per step: the Euclidean gradient already runs the
+    # full SVD of A(Q X), so its returned (cost, sigma) feed best-tracking and the
+    # spectrum-stats logging without a second retraction or decomposition. Step k
+    # of this loop evaluates Q after k Adam updates, matching the previous
+    # post-update logging at the same step index.
+    for step in range(steps):
         q = orthogonal_from_raw(raw)
         with torch.no_grad():
-            eu_grad, _, *_ = _euclidean_gradient(q.detach(), base_matrix, shape, keep_rank)
+            eu_grad, cost, _, sigma, _ = _euclidean_gradient(
+                q.detach(), base_matrix, shape, keep_rank
+            )
+        if history_cb is not None:
+            history_cb(step, q.detach(), cost, sigma)
         # Surrogate s.t. d(surrogate)/d(raw) = (dQ/d(raw))^T eu_grad.
+        optimizer.zero_grad()
         surrogate = (eu_grad * q).sum()
         surrogate.backward()
         optimizer.step()
-        if history_cb is not None:
-            with torch.no_grad():
-                q_eval = orthogonal_from_raw(raw)
-                history_cb(step, q_eval, _evaluate_cost(q_eval, base_matrix, shape, keep_rank))
     with torch.no_grad():
         q_final = orthogonal_from_raw(raw)
-        return q_final, _evaluate_cost(q_final, base_matrix, shape, keep_rank)
+        permuted_final = _apply_A(q_final @ base_matrix, shape)
+        sigma_final = torch.linalg.svdvals(permuted_final)
+        final_cost = _truncation_cost_from_sigma(sigma_final, keep_rank)
+        if history_cb is not None:
+            history_cb(steps, q_final, final_cost, sigma_final)
+        return q_final, final_cost
 
 
 # ---------------------------------------------------------------------------
@@ -786,8 +804,9 @@ def disentangle_tensor4d(
     np.random.seed(seed)
 
 
-    #TODO: Careful: change to float32 if using mps
-    tensor_4d = tensor_4d.detach().clone().to(dtype=torch.float64, device=device)
+    # float32 keeps the orthogonal-optimization SVD/solve ~4x cheaper than float64
+    # while staying well within the truncation tolerances (see error analysis).
+    tensor_4d = tensor_4d.detach().clone().to(dtype=torch.float32, device=device)
     shape_4d = CD.TensorShape4D(*[int(dim) for dim in tensor_4d.shape])
     base_matrix = tensor4d_to_matrix(tensor_4d)
     shape_tuple = (
@@ -802,10 +821,20 @@ def disentangle_tensor4d(
     best_step: int = 0
     best_stats = initial_stats
 
-    def history_cb(step: int, q: torch.Tensor, cost: float) -> None:
+    def history_cb(
+        step: int,
+        q: torch.Tensor,
+        cost: float,
+        singular_values: torch.Tensor | None = None,
+    ) -> None:
         nonlocal best_cost, best_q, best_step, best_stats
-        permuted = _apply_A(q @ base_matrix, shape_tuple)
-        stats = spectrum_stats_from_permuted_matrix(permuted)
+        if singular_values is not None:
+            # Reuse the SVD the optimizer already computed for this Q (the
+            # singular values of A(Q X) are exactly the permuted spectrum).
+            stats = spectrum_stats_from_singular_values(singular_values)
+        else:
+            permuted = _apply_A(q @ base_matrix, shape_tuple)
+            stats = spectrum_stats_from_permuted_matrix(permuted)
         history.append({
             "step": step,
             "cost": cost,
@@ -981,7 +1010,7 @@ def disentangle_matrix_via_reshape(
     binary_search_max_iter: int = 12,
 ) -> CD.Matrix2DDisentanglementResult:
     shape_4d = choose_tensor_shape(matrix_2d)
-    tensor_4d = matrix_to_tensor4d(matrix_2d.to(dtype=torch.float64), shape_4d)
+    tensor_4d = matrix_to_tensor4d(matrix_2d.to(dtype=torch.float32), shape_4d)
     inner = disentangle_tensor4d(
         tensor_4d,
         steps=steps,

@@ -33,6 +33,28 @@ def inverse_permuted_matricization(
         shape_4d.right_outer,
     ).permute(0, 2, 3, 1)
 
+def spectrum_stats_from_singular_values(
+    singular_values: torch.Tensor,
+) -> CD.SpectrumStats:
+    """Build spectrum stats from already-computed singular values.
+
+    Lets callers that have just run an SVD (e.g. the gradient step) avoid a
+    redundant decomposition purely for logging/tracking.
+    """
+    energies = singular_values.square()
+    probabilities = energies / energies.sum().clamp_min(1e-12)
+    entropy = float(
+        (-(probabilities * probabilities.clamp_min(1e-12).log()).sum()).item()
+    )
+    return CD.SpectrumStats(
+        entropy=entropy,
+        effective_rank=float(math.exp(entropy)),
+        singular_values=[
+            float(value) for value in singular_values.detach().cpu().tolist()
+        ],
+    )
+
+
 def spectrum_stats_from_permuted_matrix(matrix: torch.Tensor) -> CD.SpectrumStats:
     singular_values = torch.linalg.svdvals(matrix)
     energies = singular_values.square()
