@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 import tensor_disentanglement_code.disentanglement_base as DB
 
@@ -25,6 +26,7 @@ class DisentangledLinear(nn.Module):
         self.out_features = out_features
         self.rank_fraction = rank_fraction
         self.shape_4d: tuple[int, int, int, int] | None = None
+        self.history = None
 
         self.weight = nn.Parameter(torch.empty(out_features, in_features, **factory_kwargs))
         if bias:
@@ -131,6 +133,7 @@ class DisentangledLinear(nn.Module):
         u, s, vh = torch.linalg.svd(permuted, full_matrices=False)
 
         self.shape_4d = shape_tuple
+        self.history = result.inner.history
         self.register_parameter("weight", None)
         self.Q = nn.Parameter(q.to(device=parameter_device, dtype=parameter_dtype))
         self.U = nn.Parameter(u.to(device=parameter_device, dtype=parameter_dtype))
@@ -158,3 +161,21 @@ class DisentangledLinear(nn.Module):
             f"bias={self.bias is not None}, rank_fraction={self.rank_fraction}, "
             f"is_disentangled={self.is_disentangled}"
         )
+    
+    def disentanglement_representation(self):
+        if not self.is_disentangled:
+            print("Not disentangled yet: can't be represented")
+            return
+
+        hist = self.history
+        steps_h = [h["step"] for h in hist]
+        er_h = [h["effective_rank"] for h in hist]
+
+        plt.figure(figsize=(5, 3.5))
+        plt.plot(steps_h, er_h, color="tab:green")
+        plt.xlabel("step")
+        plt.ylabel("effective rank")
+        plt.title("effective rank of A(Q·W)")
+        plt.grid(alpha=0.3)
+        plt.tight_layout()
+        plt.show()

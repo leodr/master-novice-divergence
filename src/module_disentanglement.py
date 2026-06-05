@@ -57,49 +57,67 @@ class DisentangledLinear(nn.Module):
     Q is a free (out, out) matrix; we don't enforce orthogonality during training
     since it's just one of several factors and gradient flow handles it.
     """
-    def __init__(self, in_features, out_features, keep_rank, shape_4d):
+    def __init__(self, in_features, out_features, shape_4d, keep_rank=None):
         super().__init__()
         l, r, b, c = shape_4d
         assert l * r == out_features and b * c == in_features
+        self.in_features = in_features
+        self.out_features = out_features
         self.shape_4d = shape_4d
-        self.k = keep_rank
+        self.max_rank = min(l * c, r * b)
+        self._keep_rank = None
         self.Q = nn.Parameter(torch.eye(out_features))
-        self.U = nn.Parameter(torch.empty(l * c, keep_rank))
-        self.s = nn.Parameter(torch.empty(keep_rank))
-        self.V = nn.Parameter(torch.empty(r * b, keep_rank))
+        self.U = nn.Parameter(torch.empty(l * c, self.max_rank))
+        self.s = nn.Parameter(torch.empty(self.max_rank))
+        self.V = nn.Parameter(torch.empty(r * b, self.max_rank))
         self.bias = nn.Parameter(torch.empty(out_features))
         self._init_random(in_features, out_features)
+        self.keep_rank = keep_rank
+
+    @property
+    def keep_rank(self):
+        return self._keep_rank if self._keep_rank is not None else self.max_rank
+
+    @keep_rank.setter
+    def keep_rank(self, value):
+        if value is None:
+            self._keep_rank = None
+            return
+        value = int(value)
+        if value < 1 or value > self.max_rank:
+            raise ValueError(f"keep_rank must be in [1, {self.max_rank}], got {value}")
+        self._keep_rank = value
 
     def _init_random(self, in_f, out_f):
-        # Sample a kaiming-uniform dense weight, project it onto the rank-k
-        # disentangled subspace via truncated SVD. Gives scratch training a
-        # sensible starting scale.
+        # Sample a kaiming-uniform dense weight, then store the full SVD so
+        # runtime keep_rank changes do not require rebuilding parameters.
         with torch.no_grad():
             W_init = torch.empty(out_f, in_f)
             nn.init.kaiming_uniform_(W_init, a=math.sqrt(5))
             l, r, b, c = self.shape_4d
             W_perm = W_init.reshape(l, r, b, c).permute(0, 3, 1, 2).reshape(l * c, r * b)
             Ui, Si, Vhi = torch.linalg.svd(W_perm, full_matrices=False)
-            self.U.copy_(Ui[:, :self.k])
-            self.s.copy_(Si[:self.k])
-            self.V.copy_(Vhi[:self.k].t())
+            self.U.copy_(Ui)
+            self.s.copy_(Si)
+            self.V.copy_(Vhi.t())
             bound = 1 / math.sqrt(in_f)
             nn.init.uniform_(self.bias, -bound, bound)
 
     @classmethod
-    def from_disentangled(cls, in_features, out_features, keep_rank, shape_4d, Q, U, S, Vh, bias):
-        layer = cls(in_features, out_features, keep_rank, shape_4d)
+    def from_disentangled(cls, in_features, out_features, shape_4d, Q, U, S, Vh, bias, keep_rank=None):
+        layer = cls(in_features, out_features, shape_4d, keep_rank=keep_rank)
         with torch.no_grad():
             layer.Q.copy_(Q.to(torch.float32))
-            layer.U.copy_(U[:, :keep_rank].to(torch.float32))
-            layer.s.copy_(S[:keep_rank].to(torch.float32))
-            layer.V.copy_(Vh[:keep_rank].t().to(torch.float32))
+            layer.U.copy_(U.to(torch.float32))
+            layer.s.copy_(S.to(torch.float32))
+            layer.V.copy_(Vh.t().to(torch.float32))
             layer.bias.copy_(bias)
         return layer
 
     def materialize_weight(self):
         l, r, b, c = self.shape_4d
-        M_perm = (self.U * self.s) @ self.V.t()                       # (l*c, r*b)
+        keep_rank = self.keep_rank
+        M_perm = (self.U[:, :keep_rank] * self.s[:keep_rank]) @ self.V[:, :keep_rank].t()  # (l*c, r*b)
         M = M_perm.reshape(l, c, r, b).permute(0, 2, 3, 1).reshape(l * r, b * c)
         return self.Q.t() @ M
 
@@ -127,7 +145,7 @@ def get_SVD_from_result(W, result):
     shape_tuple = (shape4d.left_outer, shape4d.left_inner, shape4d.right_outer, shape4d.right_inner)
     keep_rank = inner.keep_rank
     
-    # Truncate Q @ W to rank keep_rank in the disentangled matricization, then undo Q.
+    # Store the full SVD of Q @ W in the disentangled matricization.
     #TODO: switch back to 32 if using mps, same for code in base_disentanglement
     W64 = W.to(torch.float64)
     QW = Q @ W64
@@ -156,8 +174,8 @@ def disentangle_linear(linear_layer: nn.Linear, rank_fraction: float):
 
 
     return DisentangledLinear.from_disentangled(
-    in_features, out_features, keep_rank, shape_tuple,
-    Q=Q, U=U, S=S, Vh=Vh, bias=linear_layer.bias.detach(),
+        in_features, out_features, shape_tuple,
+        Q=Q, U=U, S=S, Vh=Vh, bias=linear_layer.bias.detach(), keep_rank=keep_rank,
     )
 
 
@@ -286,7 +304,10 @@ def build_disentangled_structure(module: nn.Module, rank_fraction: int):
                 shape_4d.left_outer, shape_4d.left_inner,
                 shape_4d.right_outer, shape_4d.right_inner,
             )
-            setattr(module_copy, name, DisentangledLinear(child.weight.shape[1], child.weight.shape[0], DB._default_keep_rank_from_shape(shape_tuple, rank_fraction), shape_tuple))
+            layer = DisentangledLinear(child.weight.shape[1], child.weight.shape[0], shape_tuple)
+            #TODO: can be changed
+            layer.keep_rank = DB._default_keep_rank_from_shape(shape_tuple, rank_fraction)
+            setattr(module_copy, name, layer)
         elif isinstance(child, nn.MultiheadAttention):
             print(f"{name}: {child}")
             setattr(module_copy, name, DisentangledMultiheadAttention(child.embed_dim, child.num_heads))
@@ -311,9 +332,6 @@ test_object_trans = nn.Transformer(
     num_decoder_layers=1
 )
 #test_disentanglement_form(test_object_trans)
-
-
-
 
 
 
