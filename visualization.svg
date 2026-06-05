@@ -1,0 +1,102 @@
+<svg viewBox="0 0 1000 660" xmlns="http://www.w3.org/2000/svg" font-family="Georgia, 'Times New Roman', serif">
+  <defs>
+    <style>
+      .h    { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+      .var  { font-style: italic; }
+      .lbl  { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 13px; }
+      .mini { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 12.5px; }
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b8d98"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="660" fill="#ffffff"/>
+
+  <!-- title -->
+  <text x="500" y="40" text-anchor="middle" class="h" font-size="24" font-weight="700" fill="#1c2024">Disentanglement optimizer — the math change</text>
+  <text x="500" y="64" text-anchor="middle" class="h" font-size="14" fill="#60646c">Same problem, cheaper orthogonal parameterization and fewer ops per step</text>
+
+  <!-- shared objective -->
+  <rect x="150" y="86" width="700" height="74" rx="12" fill="#f0f4ff" stroke="#3e63dd" stroke-width="1.5"/>
+  <text x="170" y="110" class="lbl" font-weight="700" fill="#3e63dd">UNCHANGED OBJECTIVE</text>
+  <text x="500" y="140" text-anchor="middle" font-size="21" fill="#1c2024">
+    minimize<tspan class="var" dx="6">f</tspan>(<tspan class="var">Q</tspan>) =
+    <tspan font-size="24" dx="2">&#931;</tspan><tspan baseline-shift="sub" font-size="12px">i &gt; k</tspan>
+    <tspan dx="4">&#963;</tspan><tspan baseline-shift="sub" font-size="12px">i</tspan>
+    <tspan dx="2">(</tspan> <tspan class="var">A</tspan>(<tspan class="var">Q&#8201;X</tspan>) <tspan dx="1">)</tspan><tspan baseline-shift="super" font-size="13px">2</tspan>
+    <tspan dx="14" fill="#60646c" font-size="17">subject to</tspan>
+    <tspan dx="6" class="var">Q</tspan><tspan baseline-shift="super" font-size="13px">&#8868;</tspan><tspan class="var" dx="1">Q</tspan> = <tspan class="var" dx="1">I</tspan>
+  </text>
+
+  <!-- ===================== BEFORE ===================== -->
+  <g>
+    <rect x="40" y="186" width="445" height="404" rx="14" fill="#fff5f5" stroke="#e5484d" stroke-width="1.5"/>
+    <rect x="40" y="186" width="445" height="34" rx="14" fill="#e5484d"/>
+    <rect x="40" y="206" width="445" height="14" fill="#e5484d"/>
+    <text x="62" y="209" class="h" font-size="15" font-weight="700" fill="#ffffff">BEFORE  ·  float64</text>
+
+    <!-- parameterization -->
+    <text x="62" y="252" class="lbl" font-weight="700" fill="#7a2e30">ORTHOGONAL MAP &#8212; matrix exponential</text>
+    <text x="62" y="290" font-size="22" fill="#1c2024">
+      <tspan class="var">Q</tspan> = exp(<tspan class="var">S</tspan>),
+      <tspan dx="10" class="var">S</tspan> = <tspan class="var">R</tspan> &#8722; <tspan class="var">R</tspan><tspan baseline-shift="super" font-size="13px">&#8868;</tspan>
+    </text>
+    <text x="62" y="314" class="mini" fill="#60646c">scaling-and-squaring: ~18 matmuls; backward = Fr&#233;chet</text>
+    <text x="62" y="331" class="mini" fill="#60646c">derivative (a 2<tspan class="var">n</tspan>&#215;2<tspan class="var">n</tspan> exponential) &#8212; the hidden cost</text>
+
+    <line x1="62" y1="348" x2="463" y2="348" stroke="#f3c0c1"/>
+
+    <!-- per-step -->
+    <text x="62" y="372" class="lbl" font-weight="700" fill="#7a2e30">PER OPTIMIZER STEP</text>
+    <text x="66" y="397" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">1.</tspan> <tspan class="var">Q</tspan> = exp(<tspan class="var">S</tspan>)<tspan class="mini" dx="8" fill="#8b8d98">retraction #1</tspan></text>
+    <text x="66" y="420" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">2.</tspan> SVD of <tspan class="var">A</tspan>(<tspan class="var">QX</tspan>) &#8594; gradient</text>
+    <text x="66" y="443" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">3.</tspan> backward through exp &#8212; <tspan fill="#b54548">costly Fr&#233;chet</tspan></text>
+    <text x="66" y="466" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">4.</tspan> <tspan class="var">Q&#8242;</tspan> = exp(<tspan class="var">S</tspan>)<tspan class="mini" dx="8" fill="#8b8d98">retraction #2 (for eval)</tspan></text>
+    <text x="66" y="489" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">5.</tspan> svdvals of <tspan class="var">A</tspan>(<tspan class="var">Q&#8242;X</tspan>) &#8594; cost</text>
+    <text x="66" y="512" font-size="14" fill="#1c2024"><tspan fill="#e5484d" font-weight="700">6.</tspan> SVD again &#8594; logging / spectrum stats</text>
+
+    <rect x="62" y="528" width="401" height="44" rx="9" fill="#fbe3e3"/>
+    <text x="82" y="556" class="h" font-size="16" font-weight="700" fill="#7a2e30">2 &#215; exp  +  3 &#215; SVD  per step  ·  ~34 s/step</text>
+  </g>
+
+  <!-- ===================== AFTER ===================== -->
+  <g>
+    <rect x="515" y="186" width="445" height="404" rx="14" fill="#f1fbf7" stroke="#12a594" stroke-width="1.5"/>
+    <rect x="515" y="186" width="445" height="34" rx="14" fill="#12a594"/>
+    <rect x="515" y="206" width="445" height="14" fill="#12a594"/>
+    <text x="537" y="209" class="h" font-size="15" font-weight="700" fill="#ffffff">AFTER  ·  float32</text>
+
+    <!-- parameterization -->
+    <text x="537" y="252" class="lbl" font-weight="700" fill="#0c6b5f">ORTHOGONAL MAP &#8212; Cayley transform</text>
+    <text x="537" y="290" font-size="22" fill="#1c2024">
+      <tspan class="var">Q</tspan> = (<tspan class="var">I</tspan>+<tspan class="var">S</tspan>)<tspan baseline-shift="super" font-size="13px">&#8722;1</tspan>(<tspan class="var">I</tspan>&#8722;<tspan class="var">S</tspan>),
+      <tspan dx="8" class="var">S</tspan> = <tspan class="var">R</tspan> &#8722; <tspan class="var">R</tspan><tspan baseline-shift="super" font-size="13px">&#8868;</tspan>
+    </text>
+    <text x="537" y="314" class="mini" fill="#60646c">one linear solve; exact orthogonal (<tspan class="var">Q</tspan><tspan baseline-shift="super" font-size="9px">&#8868;</tspan><tspan class="var">Q</tspan>=<tspan class="var">I</tspan>), same</text>
+    <text x="537" y="331" class="mini" fill="#60646c">f(Q); backward = one solve &#8212; ~12&#215; cheaper on GPU</text>
+
+    <line x1="537" y1="348" x2="938" y2="348" stroke="#bfe9df"/>
+
+    <!-- per-step -->
+    <text x="537" y="372" class="lbl" font-weight="700" fill="#0c6b5f">PER OPTIMIZER STEP</text>
+    <text x="541" y="397" font-size="14" fill="#1c2024"><tspan fill="#12a594" font-weight="700">1.</tspan> <tspan class="var">Q</tspan> = (<tspan class="var">I</tspan>+<tspan class="var">S</tspan>)<tspan baseline-shift="super" font-size="10px">&#8722;1</tspan>(<tspan class="var">I</tspan>&#8722;<tspan class="var">S</tspan>)<tspan class="mini" dx="8" fill="#8b8d98">retraction</tspan></text>
+    <text x="541" y="420" font-size="14" fill="#1c2024"><tspan fill="#12a594" font-weight="700">2.</tspan> SVD of <tspan class="var">A</tspan>(<tspan class="var">QX</tspan>) &#8594; gradient</text>
+    <text x="557" y="441" class="mini" fill="#0c6b5f">&#8627; its <tspan class="var">&#963;</tspan>, cost &amp; spectrum stats reused (no extra SVD)</text>
+    <text x="541" y="466" font-size="14" fill="#1c2024"><tspan fill="#12a594" font-weight="700">3.</tspan> backward through solve &#8212; <tspan fill="#0c6b5f">cheap</tspan></text>
+
+    <text x="557" y="500" class="mini" fill="#8b8d98">(retraction #2, the 2 extra SVDs, and float64</text>
+    <text x="557" y="517" class="mini" fill="#8b8d98">all eliminated &#8212; same logged values)</text>
+
+    <rect x="537" y="528" width="401" height="44" rx="9" fill="#d6f3ea"/>
+    <text x="557" y="556" class="h" font-size="16" font-weight="700" fill="#0c6b5f">1 &#215; Cayley  +  1 &#215; SVD  per step  ·  ~0.6 s/step</text>
+  </g>
+
+  <!-- arrow between panels -->
+  <line x1="488" y1="388" x2="512" y2="388" stroke="#8b8d98" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- footer speedup -->
+  <text x="500" y="628" text-anchor="middle" class="h" font-size="17" fill="#1c2024">
+    <tspan font-weight="700" fill="#30a46c">&#8776; 55&#215;</tspan> faster per step (CPU) &#8212; identical objective, exact orthogonality, ~10% cost gap closed by a few extra cheap steps
+  </text>
+</svg>

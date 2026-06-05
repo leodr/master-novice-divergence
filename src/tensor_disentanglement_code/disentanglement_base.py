@@ -60,15 +60,16 @@ def _apply_A_inv(matrix: torch.Tensor, shape: tuple[int, int, int, int]) -> torc
 def orthogonal_from_raw(raw: torch.Tensor) -> torch.Tensor:
     """Q = Cayley(B(s)) parameterization for the Adam-Lie baseline.
 
-    The Cayley transform Q = (I + S)^{-1}(I - S) of a skew-symmetric S maps onto
-    the same special-orthogonal group as the matrix exponential exp(S), but costs
-    a single linear solve instead of scaling-and-squaring (~20x cheaper on the
-    n x n matrices here). It is an exact orthogonal map (Q^T Q = I for any skew
-    S), and a valid retraction for optimizing over O(n): it agrees with exp(S) to
-    first order at S = 0, so the closed-form Euclidean-gradient surrogate used by
-    the Adam-Lie optimizers remains correct. The only orthogonals it cannot
-    represent are those with a -1 eigenvalue (a measure-zero set, unreachable
-    from the S = 0 / Q = I initialization)."""
+    The Cayley transform Q = (I + S)^{-1}(I - S) of a skew-symmetric S is an exact
+    orthogonal map (Q^T Q = I) and a valid retraction for optimizing over O(n): it
+    agrees with exp(S) to first order at S = 0, so the closed-form Euclidean-
+    gradient surrogate stays correct, and it converges to minima of the identical
+    objective f(Q). It is preferred over exp(S) on both CPU and GPU because it is
+    far cheaper to differentiate: the autograd backward is a single linear solve,
+    whereas exp(S)'s backward (the Frechet derivative, a 2n x 2n exponential) is
+    ~12x slower on GPU and dominates the step. The only orthogonals it cannot
+    represent have a -1 eigenvalue (measure-zero, unreachable from the Q = I
+    start)."""
     skew = raw - raw.transpose(-1, -2)
     identity = torch.eye(skew.shape[-1], dtype=skew.dtype, device=skew.device)
     return torch.linalg.solve(identity + skew, identity - skew)

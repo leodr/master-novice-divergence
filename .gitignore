@@ -519,3 +519,6 @@ data/
 
 # Vscode
 .vscode/
+
+# Disentangled model checkpoints (large binaries)
+*.pt
