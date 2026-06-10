@@ -148,6 +148,11 @@ class DisentangledLinear(nn.Module):
             raise RuntimeError("Disentangled factors are missing their 4D shape.")
 
         keep_rank = self.keep_rank if truncate else self.max_rank
+
+        #Test
+        if (keep_rank != self.max_rank):
+            print("Looking bad!")
+
         permuted = (self.U[:, :keep_rank] * self.s[:keep_rank]) @ self.Vh[:keep_rank]
         weight = DB._apply_A_inv(permuted, self.shape_4d)
         return self.Q.t() @ weight
