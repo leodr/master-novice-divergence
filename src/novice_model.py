@@ -101,14 +101,21 @@ class NoviceModel:
         Only the factors were saved; the untouched (non-MLP) weights are restored
         by re-loading the base model, then each MLP linear is swapped back to a
         ``DisentangledLinear`` and re-populated from the stored Q/U/s/Vh factors.
+
+        Both the base weights (via ``device_map``) and the factors (via
+        ``map_location``) load straight onto ``device``, avoiding a CPU→device
+        staging copy of the multi-GB factor set.
         """
-        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+        device = str(device)
+        checkpoint = torch.load(path, map_location=device, weights_only=False)
         if checkpoint.get("format") != CHECKPOINT_FORMAT:
             raise ValueError(f"Unexpected checkpoint format: {checkpoint.get('format')!r}")
         model_name = checkpoint["model_name"]
         rank_fraction = checkpoint["rank_fraction"]
 
-        model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, trust_remote_code=trust_remote_code, device_map=device
+        )
         cls._swap_mlp_linears(model, rank_fraction)
 
         modules_by_name = dict(model.named_modules())
@@ -120,7 +127,7 @@ class NoviceModel:
             module.rank_fraction = rank_fraction
 
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
-        return cls(model.to(device), tokenizer, model_name=model_name, rank_fraction=rank_fraction)
+        return cls(model, tokenizer, model_name=model_name, rank_fraction=rank_fraction)
 
     @staticmethod
     def _swap_mlp_linears(model: nn.Module, rank_fraction: float) -> int:
