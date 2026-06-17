@@ -27,8 +27,11 @@ Run as a script to disentangle a base model and save its factors::
 
 from __future__ import annotations
 
+import contextlib
 import copy
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 import torch
@@ -163,28 +166,66 @@ class NoviceModel:
         self,
         *,
         steps: int = 100,
-        learning_rate: float = 0.05,
+        learning_rate: float = 0.001,
         device: str | torch.device | None = None,
         verbose: bool = True,
+        workers: int = 3,
     ) -> "NoviceModel":
-        """Disentangle every MLP ``DisentangledLinear`` in place."""
+        """Disentangle every MLP ``DisentangledLinear`` in place.
+
+        ``workers`` > 1 processes that many layers concurrently on separate CUDA
+        streams. Only useful when the per-layer VRAM footprint leaves headroom —
+        each large layer (gate/up-proj) uses ~1.4 GB of working memory.
+        """
         if self._baked:
             raise RuntimeError("Cannot disentangle a baked model (factors are gone).")
         targets = self.factored_layers
         total = len(targets)
         start = time.perf_counter()
-        for index, (name, module) in enumerate(targets, start=1):
+
+        if workers <= 1:
+            for index, (name, module) in enumerate(targets, start=1):
+                layer_start = time.perf_counter()
+                module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
+                if verbose:
+                    done = time.perf_counter() - start
+                    eta = done / index * (total - index)
+                    print(
+                        f"[{index:2d}/{total}] {name:40s} "
+                        f"{time.perf_counter() - layer_start:5.1f}s  "
+                        f"(elapsed {done / 60:4.1f}m, eta {eta / 60:4.1f}m)",
+                        flush=True,
+                    )
+            return self
+
+        use_streams = device is not None and "cuda" in str(device)
+        lock = threading.Lock()
+        done_count = [0]
+
+        def _run(name_module: tuple[str, "DisentangledLinear"]) -> None:
+            name, module = name_module
             layer_start = time.perf_counter()
-            module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
+            stream = torch.cuda.Stream(device=device) if use_streams else None
+            ctx = torch.cuda.stream(stream) if stream else contextlib.nullcontext()
+            with ctx:
+                module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
+            if stream:
+                stream.synchronize()
             if verbose:
-                done = time.perf_counter() - start
-                eta = done / index * (total - index)
-                print(
-                    f"[{index:2d}/{total}] {name:40s} "
-                    f"{time.perf_counter() - layer_start:5.1f}s  "
-                    f"(elapsed {done / 60:4.1f}m, eta {eta / 60:4.1f}m)",
-                    flush=True,
-                )
+                with lock:
+                    done_count[0] += 1
+                    elapsed = time.perf_counter() - start
+                    eta = elapsed / done_count[0] * (total - done_count[0])
+                    print(
+                        f"[{done_count[0]:2d}/{total}] {name:40s} "
+                        f"{time.perf_counter() - layer_start:5.1f}s  "
+                        f"(elapsed {elapsed / 60:4.1f}m, eta {eta / 60:4.1f}m)",
+                        flush=True,
+                    )
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            list(pool.map(_run, targets))
+
         return self
 
     def save(self, path: str) -> int:
@@ -363,8 +404,9 @@ def _main() -> None:
     parser.add_argument("--model", default=MODEL_NAME, help="Base model to disentangle.")
     parser.add_argument("--rank-fraction", type=float, default=DEFAULT_RANK_FRACTION)
     parser.add_argument("--steps", type=int, default=100)
-    parser.add_argument("--lr", type=float, default=0.05)
+    parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--workers", type=int, default=3, help="Parallel layer workers.")
     args = parser.parse_args()
 
     print(f"Loading {args.model} (float32) ...", flush=True)
@@ -374,7 +416,7 @@ def _main() -> None:
     print(f"Replaced {novice.num_factored_layers} MLP linear layers.", flush=True)
 
     start = time.perf_counter()
-    novice.disentangle(steps=args.steps, learning_rate=args.lr, device=args.device)
+    novice.disentangle(steps=args.steps, learning_rate=args.lr, device=args.device, workers=args.workers)
     n_saved = novice.save(args.out)
     print(
         f"Saved {n_saved} disentangled modules to {args.out} "

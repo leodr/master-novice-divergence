@@ -88,7 +88,7 @@ class DisentangledLinear(nn.Module):
         self,
         *,
         steps: int = 100,
-        learning_rate: float = 0.05,
+        learning_rate: float = 0.001,
         seed: int = 0,
         device: str | torch.device | None = None,
         log_prefix: str | None = None,
