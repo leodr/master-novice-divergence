@@ -2,9 +2,7 @@ import torch
 import torch.nn.functional as F
 import argparse
 from transformers import AutoModelForCausalLM
-from novice_io import load_disentangled, materialize_dense_model
-from prepare_qwen import replace_mlp_linears_with_disentangled
-from module_disentanglement import print_layers_with_params
+from novice_model import NoviceModel
 
 REQUESTED_DEVICE = None
 
@@ -203,10 +201,9 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
     base_model = load_model(args.model)
-    disentangled = load_disentangled(args.disentangled, device=DEVICE)
-
-    materialize_dense_model(disentangled, rank_fraction=args.rank_fraction)
-    test_equality(base_model, disentangled)
+    novice = NoviceModel.from_checkpoint(args.disentangled, device=DEVICE)
+    baked = novice.bake(args.rank_fraction, in_place=True)
+    test_equality(base_model, baked)
 
 
 

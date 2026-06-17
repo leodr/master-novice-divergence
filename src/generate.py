@@ -17,14 +17,12 @@ import time
 
 import torch
 from tqdm import tqdm
-from transformers import AutoTokenizer, StoppingCriteria, StoppingCriteriaList
+from transformers import StoppingCriteria, StoppingCriteriaList
 
 try:
-    from .novice_io import load_disentangled, materialize_dense_model
-    from .disentangled_linear import DisentangledLinear
+    from .novice_model import NoviceModel
 except ImportError:
-    from novice_io import load_disentangled, materialize_dense_model
-    from disentangled_linear import DisentangledLinear
+    from novice_model import NoviceModel
 
 
 C_DIM, C_BOLD, C_CYAN, C_GREEN, C_RESET = "\033[2m", "\033[1m", "\033[36m", "\033[32m", "\033[0m"
@@ -89,25 +87,22 @@ def main() -> None:
     stage("Loading disentangled factors")
     kv("checkpoint", args.checkpoint)
     kv("device", args.device)
-    raw = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
-    model = load_disentangled(args.checkpoint, device=args.device)
-    n_layers = sum(isinstance(m, DisentangledLinear) for m in model.modules())
-    kv("base model", raw["model_name"])
-    kv("disentangled", f"{n_layers} MLP layers  (trained at rank {raw['rank_fraction']})")
+    novice = NoviceModel.from_checkpoint(args.checkpoint, device=args.device)
+    n_layers = novice.num_factored_layers
+    kv("base model", novice.model_name)
+    kv("disentangled", f"{n_layers} MLP layers  (trained at rank {novice.rank_fraction})")
 
     # 2. Bake the chosen inference rank into dense weights (one matmul/layer on device).
-    example = next(m for m in model.modules() if isinstance(m, DisentangledLinear))
-    example.rank_fraction = args.rank_fraction
-    keep, full = example.keep_rank, example.max_rank
+    keep, full = novice.rank_at(args.rank_fraction)
     stage(f"Baking rank_fraction={args.rank_fraction}")
     kv("kept rank", f"{keep}/{full}  ({keep/full:.0%} kept, {1-keep/full:.0%} truncated)")
     with tqdm(total=n_layers, desc="materializing", unit="layer", leave=True, dynamic_ncols=True) as bar:
-        materialize_dense_model(model, rank_fraction=args.rank_fraction, progress_callback=bar.update)
+        model = novice.bake(args.rank_fraction, in_place=True, progress_callback=bar.update)
     model = model.eval()
 
     # 3. Tokenize.
     stage("Tokenizing prompt")
-    tokenizer = AutoTokenizer.from_pretrained(raw["model_name"], trust_remote_code=True)
+    tokenizer = novice.tokenizer
     inputs = tokenizer(args.prompt, return_tensors="pt").to(args.device)
     n_prompt = inputs["input_ids"].shape[1]
     kv("prompt", f'"{args.prompt}"')

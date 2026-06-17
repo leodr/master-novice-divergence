@@ -3,7 +3,6 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import matplotlib.pyplot as plt
 
 import tensor_disentanglement_code.disentanglement_base as DB
 
@@ -148,14 +147,56 @@ class DisentangledLinear(nn.Module):
             raise RuntimeError("Disentangled factors are missing their 4D shape.")
 
         keep_rank = self.keep_rank if truncate else self.max_rank
-
-        #Test
-        if (keep_rank != self.max_rank):
-            print("Looking bad!")
-
         permuted = (self.U[:, :keep_rank] * self.s[:keep_rank]) @ self.Vh[:keep_rank]
         weight = DB._apply_A_inv(permuted, self.shape_4d)
         return self.Q.t() @ weight
+
+    def export_factors(self) -> dict:
+        """Serialize this layer's disentangled factors to plain CPU tensors.
+
+        A vanilla ``state_dict`` can't round-trip a disentangled layer (``weight``
+        is ``None`` and ``shape_4d`` is a plain attribute), so callers persist this
+        dict instead and restore it with :meth:`load_factors`.
+        """
+        if not self.is_disentangled:
+            raise RuntimeError("Layer is not disentangled; nothing to export.")
+        return {
+            "shape_4d": tuple(int(d) for d in self.shape_4d),
+            "in_features": self.in_features,
+            "out_features": self.out_features,
+            "Q": self.Q.detach().cpu(),
+            "U": self.U.detach().cpu(),
+            "s": self.s.detach().cpu(),
+            "Vh": self.Vh.detach().cpu(),
+            "bias": None if self.bias is None else self.bias.detach().cpu(),
+        }
+
+    def load_factors(self, data: dict) -> "DisentangledLinear":
+        """Populate the disentangled factors from an :meth:`export_factors` dict,
+        switching this layer out of its dense-weight representation."""
+        self.shape_4d = tuple(data["shape_4d"])
+        self.register_parameter("weight", None)
+        self.Q = nn.Parameter(data["Q"], requires_grad=False)
+        self.U = nn.Parameter(data["U"], requires_grad=False)
+        self.s = nn.Parameter(data["s"], requires_grad=False)
+        self.Vh = nn.Parameter(data["Vh"], requires_grad=False)
+        if data["bias"] is not None:
+            self.bias = nn.Parameter(data["bias"], requires_grad=False)
+        return self
+
+    def to_dense_linear(self, *, truncate: bool = True) -> nn.Linear:
+        """Bake the (truncated) reconstruction into a plain ``nn.Linear`` for fast
+        inference — a normal matmul instead of recomputing the factors each call."""
+        weight = self.materialize_weight(truncate=truncate).detach()
+        dense = nn.Linear(
+            self.in_features, self.out_features,
+            bias=self.bias is not None, device=weight.device, dtype=weight.dtype,
+        )
+        with torch.no_grad():
+            dense.weight.copy_(weight)
+            if self.bias is not None:
+                dense.bias.copy_(self.bias.detach())
+        return dense
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         return F.linear(input, self.materialize_weight(), self.bias)
@@ -166,21 +207,13 @@ class DisentangledLinear(nn.Module):
             f"bias={self.bias is not None}, rank_fraction={self.rank_fraction}, "
             f"is_disentangled={self.is_disentangled}"
         )
-    
-    def disentanglement_representation(self):
+
+    def effective_rank_history(self) -> list[tuple[int, float]]:
+        """``(step, effective_rank)`` trace of ``A(Q·W)`` from the disentangle run.
+
+        Returns the raw data so callers (notebooks, plotting helpers) can render it
+        however they like; this keeps visualization dependencies out of the layer.
+        """
         if not self.is_disentangled:
-            print("Not disentangled yet: can't be represented")
-            return
-
-        hist = self.history
-        steps_h = [h["step"] for h in hist]
-        er_h = [h["effective_rank"] for h in hist]
-
-        plt.figure(figsize=(5, 3.5))
-        plt.plot(steps_h, er_h, color="tab:green")
-        plt.xlabel("step")
-        plt.ylabel("effective rank")
-        plt.title("effective rank of A(Q·W)")
-        plt.grid(alpha=0.3)
-        plt.tight_layout()
-        plt.show()
+            raise RuntimeError("Layer is not disentangled; no history to report.")
+        return [(h["step"], h["effective_rank"]) for h in self.history]
