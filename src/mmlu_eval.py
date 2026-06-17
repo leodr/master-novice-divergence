@@ -62,6 +62,30 @@ def parse_limit(value: str) -> int | float:
     raise argparse.ArgumentTypeError("--limit must be an integer >= 1 or a fraction in (0, 1)")
 
 
+def parse_dtype(value: str) -> torch.dtype:
+    dtypes = {
+        "float16": torch.float16,
+        "fp16": torch.float16,
+        "float32": torch.float32,
+        "fp32": torch.float32,
+        "bfloat16": torch.bfloat16,
+        "bf16": torch.bfloat16,
+    }
+    try:
+        return dtypes[value.lower()]
+    except KeyError as exc:
+        choices = ", ".join(sorted(dtypes))
+        raise argparse.ArgumentTypeError(f"--dtype must be one of: {choices}") from exc
+
+
+def dtype_name(dtype: torch.dtype) -> str:
+    return str(dtype).removeprefix("torch.")
+
+
+def model_dtype(model: torch.nn.Module) -> torch.dtype:
+    return next(model.parameters()).dtype
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -84,6 +108,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-fewshot", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--max-length", type=int, default=2048)
+    parser.add_argument("--dtype", type=parse_dtype, default=torch.float16,
+                        help="Model dtype for eval: float16, bfloat16, or float32 (default: float16).")
     parser.add_argument("--output", help="Optional path to write the raw lm-eval results as JSON.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default=default_device(),
@@ -156,9 +182,10 @@ def main() -> None:
         stage("Loading base model (no disentanglement)")
         kv("model", args.model)
         kv("device", args.device)
+        kv("dtype", dtype_name(args.dtype))
         hf_model = AutoModelForCausalLM.from_pretrained(
-            args.model, trust_remote_code=True, dtype=torch.float32
-        ).to(args.device).eval()
+            args.model, trust_remote_code=True, dtype=args.dtype
+        ).to(device=args.device, dtype=args.dtype).eval()
         tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -168,6 +195,7 @@ def main() -> None:
         stage("Loading disentangled factors")
         kv("checkpoint", args.checkpoint)
         kv("device", args.device)
+        kv("dtype", dtype_name(args.dtype))
         novice = NoviceModel.from_checkpoint(args.checkpoint, device=args.device)
         kv("base model", novice.model_name)
         kv("disentangled", f"{novice.num_factored_layers} MLP layers  (trained at rank {novice.rank_fraction})")
@@ -177,6 +205,9 @@ def main() -> None:
         kv("kept rank", f"{keep}/{full}  ({keep/full:.0%} kept, {1-keep/full:.0%} truncated)")
         baked = novice.bake(args.rank_fraction, in_place=True).eval()
         hf_model, tokenizer = baked.model, baked.tokenizer
+        hf_model.to(device=args.device, dtype=args.dtype)
+
+    kv("actual dtype", dtype_name(model_dtype(hf_model)))
 
     # Wrap the HF model for lm-eval and run the (optionally subset) benchmark.
     stage("Evaluating")
@@ -195,14 +226,15 @@ def main() -> None:
         trust_remote_code=True,
     )
     t_eval = time.perf_counter()
-    results = evaluator.simple_evaluate(
-        model=lm,
-        tasks=args.tasks,
-        num_fewshot=args.num_fewshot,
-        limit=args.limit,
-        log_samples=False,
-        verbosity="ERROR",
-    )
+    with torch.inference_mode():
+        results = evaluator.simple_evaluate(
+            model=lm,
+            tasks=args.tasks,
+            num_fewshot=args.num_fewshot,
+            limit=args.limit,
+            log_samples=False,
+            verbosity="ERROR",
+        )
     dt_eval = time.perf_counter() - t_eval
 
     scores = extract_scores(results, args.tasks[0])
