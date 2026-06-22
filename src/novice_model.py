@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import csv
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -169,13 +170,20 @@ class NoviceModel:
         learning_rate: float = 0.001,
         device: str | torch.device | None = None,
         verbose: bool = True,
-        workers: int = 3,
+        workers: int = 1,
+        log_csv: str | None = None,
     ) -> "NoviceModel":
         """Disentangle every MLP ``DisentangledLinear`` in place.
 
         ``workers`` > 1 processes that many layers concurrently on separate CUDA
         streams. Only useful when the per-layer VRAM footprint leaves headroom —
         each large layer (gate/up-proj) uses ~1.4 GB of working memory.
+
+        The per-step optimization trace of every matrix (cost / entropy /
+        effective_rank) is always written as CSV, one row per step per matrix,
+        along with the run's hyperparameters — handy for later plots. ``log_csv``
+        chooses the path; when omitted it defaults to a timestamped file in the
+        working directory.
         """
         if self._baked:
             raise RuntimeError("Cannot disentangle a baked model (factors are gone).")
@@ -183,10 +191,18 @@ class NoviceModel:
         total = len(targets)
         start = time.perf_counter()
 
+        if log_csv is None:
+            log_csv = f"disentangle_tuning_{time.strftime('%Y%m%d_%H%M%S')}.csv"
+        log = self._open_step_log(log_csv, steps=steps, learning_rate=learning_rate)
+        if verbose:
+            print(f"Logging per-step tuning to {log_csv}", flush=True)
+
         if workers <= 1:
             for index, (name, module) in enumerate(targets, start=1):
                 layer_start = time.perf_counter()
                 module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
+                if log is not None:
+                    log(name, module)
                 if verbose:
                     done = time.perf_counter() - start
                     eta = done / index * (total - index)
@@ -211,8 +227,10 @@ class NoviceModel:
                 module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
             if stream:
                 stream.synchronize()
-            if verbose:
-                with lock:
+            with lock:
+                if log is not None:
+                    log(name, module)
+                if verbose:
                     done_count[0] += 1
                     elapsed = time.perf_counter() - start
                     eta = elapsed / done_count[0] * (total - done_count[0])
@@ -227,6 +245,45 @@ class NoviceModel:
             list(pool.map(_run, targets))
 
         return self
+
+    def _open_step_log(
+        self, path: str | None, *, steps: int, learning_rate: float
+    ) -> Callable[[str, "DisentangledLinear"], None] | None:
+        """Return a callback that appends a disentangled layer's per-step history to
+        ``path`` as CSV (one row per step), or ``None`` when ``path`` is falsy.
+
+        The returned callback is not thread-safe; callers serialize it under a lock.
+        """
+        if not path:
+            return None
+
+        fields = [
+            "model_name", "rank_fraction", "learning_rate", "steps",
+            "layer", "keep_rank", "max_rank",
+            "step", "cost", "entropy", "effective_rank",
+        ]
+        handle = open(path, "w", newline="")
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+
+        def log(name: str, module: "DisentangledLinear") -> None:
+            for record in module.history or []:
+                writer.writerow({
+                    "model_name": self.model_name,
+                    "rank_fraction": self.rank_fraction,
+                    "learning_rate": learning_rate,
+                    "steps": steps,
+                    "layer": name,
+                    "keep_rank": module.keep_rank,
+                    "max_rank": module.max_rank,
+                    "step": record["step"],
+                    "cost": record["cost"],
+                    "entropy": record["entropy"],
+                    "effective_rank": record["effective_rank"],
+                })
+            handle.flush()
+
+        return log
 
     def save(self, path: str) -> int:
         """Persist the disentangled factors only. Returns the number of layers written.
@@ -406,7 +463,7 @@ def _main() -> None:
     parser.add_argument("--steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--workers", type=int, default=3, help="Parallel layer workers.")
+    parser.add_argument("--workers", type=int, default=1, help="Parallel layer workers.")
     args = parser.parse_args()
 
     print(f"Loading {args.model} (float32) ...", flush=True)
