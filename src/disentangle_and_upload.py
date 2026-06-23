@@ -151,6 +151,12 @@ def _main() -> None:
     # Upload: create the repo, write a README, push the shard dir (factors +
     # manifest) and the tuning log. upload_folder streams shards from disk, so we
     # never hold the full factor set in RAM.
+    #
+    # Default to the plain LFS upload path: the Xet backend has been observed to
+    # fail mid-transfer with a 400 from cas-server.xethub.hf.co (and then crash the
+    # client on teardown), losing the whole multi-GB push. Set HF_HUB_DISABLE_XET=0
+    # to opt back into Xet.
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
     from huggingface_hub import HfApi
 
     api = HfApi(token=token)
