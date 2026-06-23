@@ -23,14 +23,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 
 import torch
 
 try:
-    from .novice_model import MODEL_NAME, NoviceModel
+    from .novice_model import MANIFEST_NAME, MODEL_NAME, NoviceModel
 except ImportError:
-    from novice_model import MODEL_NAME, NoviceModel
+    from novice_model import MANIFEST_NAME, MODEL_NAME, NoviceModel
 
 
 C_DIM, C_BOLD, C_CYAN, C_GREEN, C_RESET = "\033[2m", "\033[1m", "\033[36m", "\033[32m", "\033[0m"
@@ -189,6 +190,23 @@ def main() -> None:
         tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+    elif os.path.isdir(args.checkpoint) or os.path.exists(
+        os.path.join(os.path.dirname(args.checkpoint), MANIFEST_NAME)
+    ):
+        # Sharded checkpoint (shard dir + manifest): bake the chosen rank one layer
+        # at a time so we never hold the full factor set in memory.
+        ckpt_dir = args.checkpoint if os.path.isdir(args.checkpoint) else os.path.dirname(args.checkpoint)
+        stage("Loading sharded factors (baking layer-by-layer)")
+        kv("checkpoint", ckpt_dir)
+        kv("device", args.device)
+        kv("dtype", dtype_name(args.dtype))
+        stage(f"Baking rank_fraction={args.rank_fraction}")
+        baked = NoviceModel.from_sharded_checkpoint(
+            ckpt_dir, rank_fraction=args.rank_fraction, device=args.device, baked=True
+        ).eval()
+        kv("base model", baked.model_name)
+        hf_model, tokenizer = baked.model, baked.tokenizer
+        hf_model.to(device=args.device, dtype=args.dtype)
     else:
         # Load factors onto the compute device and bake the chosen inference rank into
         # dense weights — MMLU runs many forward passes, so the factored forward is too slow.
@@ -206,6 +224,9 @@ def main() -> None:
         baked = novice.bake(args.rank_fraction, in_place=True).eval()
         hf_model, tokenizer = baked.model, baked.tokenizer
         hf_model.to(device=args.device, dtype=args.dtype)
+
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     kv("actual dtype", dtype_name(model_dtype(hf_model)))
 
