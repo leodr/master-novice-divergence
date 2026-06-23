@@ -49,6 +49,8 @@ except ImportError:
 MODEL_NAME = "Qwen/Qwen3.5-0.8B-Base"
 DEFAULT_RANK_FRACTION = 0.1
 CHECKPOINT_FORMAT = "novice_disentangled_v1"
+SHARDED_FORMAT = "novice_sharded_v1"
+MANIFEST_NAME = "manifest.pt"
 
 
 class NoviceModel:
@@ -133,6 +135,63 @@ class NoviceModel:
 
         tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
         return cls(model, tokenizer, model_name=model_name, rank_fraction=rank_fraction)
+
+    @classmethod
+    def from_sharded_checkpoint(
+        cls,
+        checkpoint_dir: str,
+        *,
+        rank_fraction: float | None = None,
+        device: torch.device | str = "cpu",
+        baked: bool = True,
+        trust_remote_code: bool = True,
+    ) -> "NoviceModel":
+        """Load a Novice from a sharded checkpoint (shard dir + ``manifest.pt``),
+        materializing **one layer at a time** so peak memory stays near the base
+        model plus a single layer's factors — never the full multi-GB factor set.
+
+        With ``baked=True`` (default) each layer is immediately truncated to
+        ``rank_fraction`` and replaced by a dense ``nn.Linear``, then its factors
+        are freed before moving on — the memory-safe path this format exists for,
+        and ready for fast generation. ``baked=False`` keeps every layer factored
+        (so the rank can still be changed live), which holds *all* factors in
+        memory at once; only use it when they comfortably fit.
+        """
+        device = str(device)
+        manifest = torch.load(
+            os.path.join(checkpoint_dir, MANIFEST_NAME), map_location="cpu", weights_only=False
+        )
+        if manifest.get("format") != SHARDED_FORMAT:
+            raise ValueError(f"Unexpected manifest format: {manifest.get('format')!r}")
+        model_name = manifest["model_name"]
+        rf = rank_fraction if rank_fraction is not None else manifest["rank_fraction"]
+
+        model = AutoModelForCausalLM.from_pretrained(
+            model_name, trust_remote_code=trust_remote_code, device_map=device
+        )
+        cls._swap_mlp_linears(model, rf)
+
+        modules_by_name = dict(model.named_modules())
+        for name, shard_file in manifest["layers"].items():
+            module = modules_by_name[name]
+            if not isinstance(module, DisentangledLinear):
+                raise RuntimeError(f"Expected DisentangledLinear at {name!r}, got {type(module)}")
+            data = torch.load(
+                os.path.join(checkpoint_dir, shard_file), map_location=device, weights_only=False
+            )
+            module.load_factors(data)
+            module.rank_fraction = rf
+            if baked:
+                # Truncate to a dense weight now and drop the factors, so RAM never
+                # accumulates across layers.
+                parent_name, _, attr = name.rpartition(".")
+                parent = model.get_submodule(parent_name) if parent_name else model
+                setattr(parent, attr, module.to_dense_linear(truncate=True))
+                module.discard_factors()
+            del data
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=trust_remote_code)
+        return cls(model, tokenizer, model_name=model_name, rank_fraction=rf, baked=baked)
 
     @staticmethod
     def _swap_mlp_linears(model: nn.Module, rank_fraction: float) -> int:
@@ -294,27 +353,32 @@ class NoviceModel:
     def _shard_path(checkpoint_dir: str, layer_name: str) -> str:
         return os.path.join(checkpoint_dir, f"{layer_name}.factors.pt")
 
-    def finalize_checkpoint(self, checkpoint_dir: str, path: str) -> int:
-        """Assemble per-layer shards written during streaming :meth:`disentangle`
-        into a single checkpoint in the same format as :meth:`save`. Returns the
-        number of layers written.
+    def finalize_checkpoint(self, checkpoint_dir: str) -> int:
+        """Write a manifest tying together the per-layer shards produced by streaming
+        :meth:`disentangle`. Returns the number of layers indexed.
+
+        Deliberately memory-flat: it only records shard *filenames*, never loading
+        the factors back into RAM. The shard directory + manifest *is* the
+        checkpoint; load it with :meth:`from_sharded_checkpoint`, which in turn
+        materializes one layer at a time. (Assembling a single multi-GB ``.pt``
+        would re-OOM exactly the way the streaming changes were meant to prevent.)
         """
-        modules: dict[str, Any] = {}
+        layers: dict[str, str] = {}
         for name, _ in self.factored_layers:
             shard = self._shard_path(checkpoint_dir, name)
             if not os.path.exists(shard):
                 raise FileNotFoundError(f"Missing factor shard for {name!r}: {shard}")
-            modules[name] = torch.load(shard, map_location="cpu", weights_only=False)
+            layers[name] = os.path.basename(shard)
         torch.save(
             {
-                "format": CHECKPOINT_FORMAT,
+                "format": SHARDED_FORMAT,
                 "model_name": self.model_name,
                 "rank_fraction": self.rank_fraction,
-                "modules": modules,
+                "layers": layers,
             },
-            path,
+            os.path.join(checkpoint_dir, MANIFEST_NAME),
         )
-        return len(modules)
+        return len(layers)
 
     def _open_step_log(
         self, path: str | None, *, steps: int, learning_rate: float, append: bool = False

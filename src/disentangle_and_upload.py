@@ -33,7 +33,7 @@ except ImportError:
 
 def build_readme(
     *, repo_id: str, model_name: str, rank_fraction: float, steps: int,
-    learning_rate: float, num_layers: int, checkpoint_name: str, log_name: str,
+    learning_rate: float, num_layers: int, log_name: str,
 ) -> str:
     """A short model card describing how the artifact was produced and how to load it."""
     return f"""---
@@ -64,20 +64,24 @@ be reconstructed at any chosen rank.
 
 ## Files
 
-- **`{checkpoint_name}`** — the disentangled factors (load with `NoviceModel.from_checkpoint`).
+- **`*.factors.pt` + `manifest.pt`** — the disentangled factors, stored one shard per
+  MLP linear plus a manifest. This sharded layout lets the loader materialize one
+  layer at a time, so memory stays near the base model + a single layer (the full
+  factor set is several × the model and would otherwise OOM).
 - **`{log_name}`** — per-step tuning trace (one row per step per matrix: cost, entropy,
   effective rank) plus the run's hyperparameters, for plotting/analysis.
 
 ## Usage
 
 ```python
-from huggingface_hub import hf_hub_download
+from huggingface_hub import snapshot_download
 from novice_model import NoviceModel
 
-ckpt = hf_hub_download("{repo_id}", "{checkpoint_name}")
-novice = NoviceModel.from_checkpoint(ckpt, device="cuda")
+# download just the factor shards + manifest
+ckpt_dir = snapshot_download("{repo_id}", allow_patterns=["*.pt"])
 
-fast = novice.bake(rank_fraction={rank_fraction})   # truncate to a static weight
+# loads layer-by-layer, truncating to the chosen rank — memory-flat
+fast = NoviceModel.from_sharded_checkpoint(ckpt_dir, rank_fraction={rank_fraction}, device="cuda")
 out = fast.generate(**fast.tokenizer("Hello", return_tensors="pt").to(fast.device))
 print(fast.tokenizer.decode(out[0]))
 ```
@@ -122,7 +126,6 @@ def _main() -> None:
         )
 
     slug = args.repo_id.split("/")[-1]
-    out_path = args.out or f"{slug}.pt"
     log_path = args.log_csv or f"{slug}_tuning.csv"
     checkpoint_dir = args.checkpoint_dir or f"{slug}_shards"
     dtype = getattr(torch, args.dtype)
@@ -141,11 +144,13 @@ def _main() -> None:
         workers=args.workers, log_csv=log_path,
         checkpoint_dir=checkpoint_dir, resume=True,
     )
-    n_saved = novice.finalize_checkpoint(checkpoint_dir, out_path)
+    n_saved = novice.finalize_checkpoint(checkpoint_dir)
     elapsed = (time.perf_counter() - start) / 60
-    print(f"Saved {n_saved} disentangled modules to {out_path} in {elapsed:.1f} min.", flush=True)
+    print(f"Wrote manifest for {n_saved} layers to {checkpoint_dir}/ in {elapsed:.1f} min.", flush=True)
 
-    # Upload: create the repo, write a README, push the checkpoint and the tuning log.
+    # Upload: create the repo, write a README, push the shard dir (factors +
+    # manifest) and the tuning log. upload_folder streams shards from disk, so we
+    # never hold the full factor set in RAM.
     from huggingface_hub import HfApi
 
     api = HfApi(token=token)
@@ -155,17 +160,19 @@ def _main() -> None:
     readme = build_readme(
         repo_id=args.repo_id, model_name=args.model, rank_fraction=args.rank_fraction,
         steps=args.steps, learning_rate=args.lr, num_layers=n_saved,
-        checkpoint_name=os.path.basename(out_path), log_name=os.path.basename(log_path),
+        log_name=os.path.basename(log_path),
     )
     api.upload_file(
         path_or_fileobj=readme.encode(), path_in_repo="README.md",
         repo_id=args.repo_id, repo_type="model",
     )
-    for local in (out_path, log_path):
-        api.upload_file(
-            path_or_fileobj=local, path_in_repo=os.path.basename(local),
-            repo_id=args.repo_id, repo_type="model",
-        )
+    api.upload_folder(
+        folder_path=checkpoint_dir, repo_id=args.repo_id, repo_type="model",
+    )
+    api.upload_file(
+        path_or_fileobj=log_path, path_in_repo=os.path.basename(log_path),
+        repo_id=args.repo_id, repo_type="model",
+    )
 
     print(f"Done. https://huggingface.co/{args.repo_id}", flush=True)
 
