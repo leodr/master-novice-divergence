@@ -30,6 +30,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import csv
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -172,6 +173,8 @@ class NoviceModel:
         verbose: bool = True,
         workers: int = 1,
         log_csv: str | None = None,
+        checkpoint_dir: str | None = None,
+        resume: bool = True,
     ) -> "NoviceModel":
         """Disentangle every MLP ``DisentangledLinear`` in place.
 
@@ -184,6 +187,15 @@ class NoviceModel:
         along with the run's hyperparameters — handy for later plots. ``log_csv``
         chooses the path; when omitted it defaults to a timestamped file in the
         working directory.
+
+        ``checkpoint_dir`` turns on **streaming, resumable** disentanglement: each
+        layer's factors are written to a per-layer shard as soon as they're
+        computed and then dropped from memory, so RAM stays flat regardless of
+        model size (the factors are several times larger than the weights they
+        replace). With ``resume`` (default), layers whose shard already exists are
+        skipped — so a run killed partway through picks up where it left off when
+        re-invoked. Assemble the shards into a single checkpoint afterwards with
+        :meth:`finalize_checkpoint`.
         """
         if self._baked:
             raise RuntimeError("Cannot disentangle a baked model (factors are gone).")
@@ -191,25 +203,51 @@ class NoviceModel:
         total = len(targets)
         start = time.perf_counter()
 
+        if checkpoint_dir is not None:
+            os.makedirs(checkpoint_dir, exist_ok=True)
+
         if log_csv is None:
             log_csv = f"disentangle_tuning_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        log = self._open_step_log(log_csv, steps=steps, learning_rate=learning_rate)
+        # Append (don't clobber) when resuming into an existing log.
+        append = bool(checkpoint_dir) and resume and os.path.exists(log_csv)
+        log = self._open_step_log(log_csv, steps=steps, learning_rate=learning_rate, append=append)
         if verbose:
             print(f"Logging per-step tuning to {log_csv}", flush=True)
 
+        def _persist(name: str, module: "DisentangledLinear") -> None:
+            """Stream one layer's factors to its shard and free them from RAM."""
+            if checkpoint_dir is None:
+                return
+            torch.save(module.export_factors(), self._shard_path(checkpoint_dir, name))
+            module.discard_factors()
+
+        def _is_done(name: str) -> bool:
+            return (
+                checkpoint_dir is not None
+                and resume
+                and os.path.exists(self._shard_path(checkpoint_dir, name))
+            )
+
         if workers <= 1:
+            done = 0
             for index, (name, module) in enumerate(targets, start=1):
+                if _is_done(name):
+                    if verbose:
+                        print(f"[{index:2d}/{total}] {name:40s} resumed (shard exists)", flush=True)
+                    continue
                 layer_start = time.perf_counter()
                 module.disentangle(steps=steps, learning_rate=learning_rate, device=device)
                 if log is not None:
                     log(name, module)
+                _persist(name, module)
+                done += 1
                 if verbose:
-                    done = time.perf_counter() - start
-                    eta = done / index * (total - index)
+                    elapsed = time.perf_counter() - start
+                    eta = elapsed / done * (total - index)
                     print(
                         f"[{index:2d}/{total}] {name:40s} "
                         f"{time.perf_counter() - layer_start:5.1f}s  "
-                        f"(elapsed {done / 60:4.1f}m, eta {eta / 60:4.1f}m)",
+                        f"(elapsed {elapsed / 60:4.1f}m, eta {eta / 60:4.1f}m)",
                         flush=True,
                     )
             return self
@@ -220,6 +258,11 @@ class NoviceModel:
 
         def _run(name_module: tuple[str, "DisentangledLinear"]) -> None:
             name, module = name_module
+            if _is_done(name):
+                if verbose:
+                    with lock:
+                        print(f"[--/{total}] {name:40s} resumed (shard exists)", flush=True)
+                return
             layer_start = time.perf_counter()
             stream = torch.cuda.Stream(device=device) if use_streams else None
             ctx = torch.cuda.stream(stream) if stream else contextlib.nullcontext()
@@ -230,10 +273,11 @@ class NoviceModel:
             with lock:
                 if log is not None:
                     log(name, module)
+                _persist(name, module)
+                done_count[0] += 1
+                elapsed = time.perf_counter() - start
+                eta = elapsed / done_count[0] * (total - done_count[0])
                 if verbose:
-                    done_count[0] += 1
-                    elapsed = time.perf_counter() - start
-                    eta = elapsed / done_count[0] * (total - done_count[0])
                     print(
                         f"[{done_count[0]:2d}/{total}] {name:40s} "
                         f"{time.perf_counter() - layer_start:5.1f}s  "
@@ -246,8 +290,34 @@ class NoviceModel:
 
         return self
 
+    @staticmethod
+    def _shard_path(checkpoint_dir: str, layer_name: str) -> str:
+        return os.path.join(checkpoint_dir, f"{layer_name}.factors.pt")
+
+    def finalize_checkpoint(self, checkpoint_dir: str, path: str) -> int:
+        """Assemble per-layer shards written during streaming :meth:`disentangle`
+        into a single checkpoint in the same format as :meth:`save`. Returns the
+        number of layers written.
+        """
+        modules: dict[str, Any] = {}
+        for name, _ in self.factored_layers:
+            shard = self._shard_path(checkpoint_dir, name)
+            if not os.path.exists(shard):
+                raise FileNotFoundError(f"Missing factor shard for {name!r}: {shard}")
+            modules[name] = torch.load(shard, map_location="cpu", weights_only=False)
+        torch.save(
+            {
+                "format": CHECKPOINT_FORMAT,
+                "model_name": self.model_name,
+                "rank_fraction": self.rank_fraction,
+                "modules": modules,
+            },
+            path,
+        )
+        return len(modules)
+
     def _open_step_log(
-        self, path: str | None, *, steps: int, learning_rate: float
+        self, path: str | None, *, steps: int, learning_rate: float, append: bool = False
     ) -> Callable[[str, "DisentangledLinear"], None] | None:
         """Return a callback that appends a disentangled layer's per-step history to
         ``path`` as CSV (one row per step), or ``None`` when ``path`` is falsy.
@@ -262,9 +332,10 @@ class NoviceModel:
             "layer", "keep_rank", "max_rank",
             "step", "cost", "entropy", "effective_rank",
         ]
-        handle = open(path, "w", newline="")
+        handle = open(path, "a" if append else "w", newline="")
         writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
+        if not append:
+            writer.writeheader()
 
         def log(name: str, module: "DisentangledLinear") -> None:
             for record in module.history or []:

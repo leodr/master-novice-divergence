@@ -103,7 +103,10 @@ class DisentangledLinear(nn.Module):
         parameter_device = dense_weight.device
         parameter_dtype = dense_weight.dtype
         optimization_device = torch.device(device) if device is not None else torch.device("cpu")
-        optimization_weight = dense_weight.to(device=optimization_device)
+        # Always optimize/SVD in float32 — bf16/fp16 SVD is unsupported on most
+        # backends and numerically poor. The factors are cast back to the layer's
+        # own dtype (e.g. bf16) for storage below, keeping the memory win.
+        optimization_weight = dense_weight.to(device=optimization_device, dtype=torch.float32)
 
         result = DB.disentangle_matrix_via_reshape(
             optimization_weight,
@@ -138,6 +141,18 @@ class DisentangledLinear(nn.Module):
         self.U = nn.Parameter(u.to(device=parameter_device, dtype=parameter_dtype))
         self.s = nn.Parameter(s.to(device=parameter_device, dtype=parameter_dtype))
         self.Vh = nn.Parameter(vh.to(device=parameter_device, dtype=parameter_dtype))
+        return self
+
+    def discard_factors(self) -> "DisentangledLinear":
+        """Release the disentangled factors from memory after they've been saved.
+
+        Used by streaming disentanglement: once a layer's factors are written to a
+        checkpoint shard they no longer need to stay resident, so we drop them to
+        keep RAM flat across a many-layer model. ``shape_4d`` is kept so the layer
+        still reports its geometry; the layer is no longer ``is_disentangled``.
+        """
+        for factor in ("Q", "U", "s", "Vh"):
+            self.register_parameter(factor, None)
         return self
 
     def materialize_weight(self, *, truncate: bool = True) -> torch.Tensor:

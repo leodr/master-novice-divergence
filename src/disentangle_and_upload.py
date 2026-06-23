@@ -95,6 +95,14 @@ def _main() -> None:
     parser.add_argument("--workers", type=int, default=1, help="Parallel layer workers.")
     parser.add_argument("--out", default=None, help="Local checkpoint path (default derived from repo-id).")
     parser.add_argument("--log-csv", default=None, help="Local tuning-log path (default derived from repo-id).")
+    parser.add_argument(
+        "--checkpoint-dir", default=None,
+        help="Dir for streaming per-layer shards (default derived from repo-id). Enables resume.",
+    )
+    parser.add_argument(
+        "--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"],
+        help="Storage dtype for model + factors (optimization always runs in float32).",
+    )
     parser.add_argument("--private", action="store_true", help="Create the repo as private.")
     parser.add_argument("--token", default=None, help="HF token (else HF_TOKEN / cached login).")
     args = parser.parse_args()
@@ -116,19 +124,24 @@ def _main() -> None:
     slug = args.repo_id.split("/")[-1]
     out_path = args.out or f"{slug}.pt"
     log_path = args.log_csv or f"{slug}_tuning.csv"
+    checkpoint_dir = args.checkpoint_dir or f"{slug}_shards"
+    dtype = getattr(torch, args.dtype)
 
-    print(f"Loading {args.model} (float32) ...", flush=True)
+    print(f"Loading {args.model} ({args.dtype}) ...", flush=True)
     novice = NoviceModel.from_pretrained(
-        args.model, rank_fraction=args.rank_fraction, dtype=torch.float32
+        args.model, rank_fraction=args.rank_fraction, dtype=dtype
     )
     print(f"Replaced {novice.num_factored_layers} MLP linear layers.", flush=True)
 
     start = time.perf_counter()
+    # Streaming + resumable: each layer's factors are written to checkpoint_dir and
+    # freed as it completes, so RAM stays flat and a killed run resumes in place.
     novice.disentangle(
         steps=args.steps, learning_rate=args.lr, device=args.device,
         workers=args.workers, log_csv=log_path,
+        checkpoint_dir=checkpoint_dir, resume=True,
     )
-    n_saved = novice.save(out_path)
+    n_saved = novice.finalize_checkpoint(checkpoint_dir, out_path)
     elapsed = (time.perf_counter() - start) / 60
     print(f"Saved {n_saved} disentangled modules to {out_path} in {elapsed:.1f} min.", flush=True)
 
