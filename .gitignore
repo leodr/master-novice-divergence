@@ -525,3 +525,10 @@ data/
 
 # Disentangled model checkpoints (large binaries)
 *.pt
+
+# Disentanglement run artifacts (logs, tuning CSVs, generated plots)
+logs/
+*_tuning.csv
+*_tuning.*.csv
+disentangle_loss_curves.png
+layer*_loss.png
