@@ -533,3 +533,6 @@ logs/
 disentangle_loss_curves.png
 layer*_loss.png
 mmlu_*.json
+
+# Divergence visualizer reports
+reports/
