@@ -18,11 +18,31 @@ import time
 
 import torch
 from tqdm import tqdm
-from transformers import StoppingCriteria, StoppingCriteriaList
+from transformers import LogitsProcessorList, StoppingCriteriaList
 
 try:
+    from .sampling import (
+        MIN_P,
+        PRESENCE_PENALTY,
+        REPETITION_PENALTY,
+        TEMPERATURE,
+        TOP_K,
+        TOP_P,
+        PresencePenaltyLogitsProcessor,
+        TokenProgress,
+    )
     from .novice_model import MANIFEST_NAME, NoviceModel
 except ImportError:
+    from sampling import (
+        MIN_P,
+        PRESENCE_PENALTY,
+        REPETITION_PENALTY,
+        TEMPERATURE,
+        TOP_K,
+        TOP_P,
+        PresencePenaltyLogitsProcessor,
+        TokenProgress,
+    )
     from novice_model import MANIFEST_NAME, NoviceModel
 
 
@@ -35,20 +55,6 @@ def stage(label: str) -> None:
 
 def kv(key: str, value: str) -> None:
     print(f"  {C_DIM}{key:<14}{C_RESET} {value}", flush=True)
-
-
-class TokenProgress(StoppingCriteria):
-    """Ticks a tqdm bar once per generated token (never stops generation)."""
-
-    def __init__(self, total: int) -> None:
-        self.bar = tqdm(total=total, desc="generating", unit="tok", leave=True, dynamic_ncols=True)
-
-    def __call__(self, input_ids, scores, **kwargs) -> bool:
-        self.bar.update(1)
-        return False
-
-    def close(self) -> None:
-        self.bar.close()
 
 
 def default_device() -> str:
@@ -77,8 +83,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-c", "--checkpoint", default="novice_qwen_rf0.1.pt", help="Path to the saved factors.")
     parser.add_argument("-n", "--max-new-tokens", type=int, default=64)
     parser.add_argument("--sample", action="store_true", help="Sample instead of greedy decoding.")
-    parser.add_argument("--temperature", type=float, default=0.8)
-    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--temperature", type=float, default=TEMPERATURE)
+    parser.add_argument("--top-p", type=float, default=TOP_P)
+    parser.add_argument("--top-k", type=int, default=TOP_K)
+    parser.add_argument("--min-p", type=float, default=MIN_P)
+    parser.add_argument("--repetition-penalty", type=float, default=REPETITION_PENALTY)
+    parser.add_argument("--presence-penalty", type=float, default=PRESENCE_PENALTY,
+                        help="OpenAI/vLLM-style presence penalty over generated tokens only.")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default=default_device(), help="Compute device (default: cuda > mps > cpu).")
     return parser.parse_args()
@@ -132,15 +143,29 @@ def main() -> None:
     kv("prompt", f'"{args.prompt}"')
     kv("prompt tokens", str(n_prompt))
     kv("decoding", "sampling" if args.sample else "greedy"
-       + (f"  (T={args.temperature}, top_p={args.top_p})" if args.sample else ""))
+       + (f"  (T={args.temperature}, top_p={args.top_p}, top_k={args.top_k}, min_p={args.min_p})"
+          if args.sample else "")
+       + f"  repetition={args.repetition_penalty} presence={args.presence_penalty}")
 
     # 4. Generate with a per-token progress bar.
     stage(f"Generating up to {args.max_new_tokens} tokens")
-    gen_kwargs: dict = {"max_new_tokens": args.max_new_tokens, "pad_token_id": tokenizer.eos_token_id}
+    gen_kwargs: dict = {
+        "max_new_tokens": args.max_new_tokens,
+        "pad_token_id": tokenizer.eos_token_id,
+        "repetition_penalty": args.repetition_penalty,
+    }
     gen_kwargs.update(
-        {"do_sample": True, "temperature": args.temperature, "top_p": args.top_p}
+        {"do_sample": True, "temperature": args.temperature, "top_p": args.top_p,
+         "top_k": args.top_k, "min_p": args.min_p}
         if args.sample else {"do_sample": False}
     )
+    if args.presence_penalty != 0.0:
+        gen_kwargs["logits_processor"] = LogitsProcessorList([
+            PresencePenaltyLogitsProcessor(
+                presence_penalty=args.presence_penalty,
+                prompt_lengths=n_prompt,
+            )
+        ])
     progress = TokenProgress(args.max_new_tokens)
     t_gen = time.perf_counter()
     with torch.no_grad():
