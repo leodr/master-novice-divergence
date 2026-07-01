@@ -41,7 +41,9 @@ import time
 
 import numpy as np
 import torch
+from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import StoppingCriteria, StoppingCriteriaList
 
 try:
     from .novice_model import NoviceModel, MANIFEST_NAME
@@ -81,6 +83,22 @@ def free_memory(device: str) -> None:
         torch.cuda.empty_cache()
     elif device == "mps":
         torch.mps.empty_cache()
+
+
+class TokenProgress(StoppingCriteria):
+    """Ticks a tqdm bar once per generated token (never stops generation)."""
+
+    def __init__(self, total: int, *, desc: str) -> None:
+        self.bar = tqdm(
+            total=total, desc=desc, unit="tok", leave=True, dynamic_ncols=True, mininterval=1.0
+        )
+
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        self.bar.update(1)
+        return False
+
+    def close(self) -> None:
+        self.bar.close()
 
 
 def incremental_pieces(tokenizer, ids: list[int]) -> list[str]:
@@ -178,22 +196,37 @@ def build_input_ids(tokenizer, problem: str, *, use_chat: bool, think: bool) -> 
 
 @torch.no_grad()
 def rollout_and_score(model, input_ids: torch.Tensor, *, max_new_tokens: int, do_sample: bool,
-                      pad_token_id: int | None, device: str) -> tuple[torch.Tensor, int, np.ndarray, torch.Tensor]:
+                      pad_token_id: int | None, eos_token_id: int | None,
+                      temperature: float, top_p: float, top_k_sample: int, min_p: float,
+                      repetition_penalty: float, device: str,
+                      progress_desc: str) -> tuple[torch.Tensor, int, np.ndarray, torch.Tensor]:
     """Generate with ``model`` and score the full sequence in one forward pass.
 
     Returns (full_ids[T], prompt_len, probs[T, V], logits[T, V]) on CPU.
     """
     input_ids = input_ids.to(device)
+    prompt_len = input_ids.shape[1]
+    attention_mask = torch.ones_like(input_ids, device=device)
     gen_kwargs = dict(max_new_tokens=max_new_tokens, num_beams=1, do_sample=do_sample,
-                      pad_token_id=pad_token_id)
+                      pad_token_id=pad_token_id, eos_token_id=eos_token_id,
+                      repetition_penalty=repetition_penalty)
     if do_sample:
-        gen_kwargs.update(temperature=0.8, top_p=0.95)
-    generated = model.generate(input_ids=input_ids, **gen_kwargs)
+        gen_kwargs.update(temperature=temperature, top_p=top_p, top_k=top_k_sample, min_p=min_p)
+    progress = TokenProgress(max_new_tokens, desc=progress_desc)
+    try:
+        generated = model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            stopping_criteria=StoppingCriteriaList([progress]),
+            **gen_kwargs,
+        )
+    finally:
+        progress.close()
     full_ids = generated[0].detach().cpu()
 
     logits = model(generated).logits[0].detach().to("cpu")
     probs = softmax_np(logits)
-    return full_ids, input_ids.shape[1], probs, logits
+    return full_ids, prompt_len, probs, logits
 
 
 @torch.no_grad()
@@ -534,7 +567,13 @@ def main() -> None:
     parser.add_argument("--rank-fraction", type=float, default=None, help="Override the manifest rank.")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
-    parser.add_argument("--sample", action="store_true", help="Sample (temp 0.8, top-p 0.95) instead of greedy.")
+    parser.add_argument("--sample", action="store_true", help="Sample instead of greedy decoding.")
+    parser.add_argument("--temperature", type=float, default=1.0)
+    parser.add_argument("--top-p", type=float, default=0.95)
+    parser.add_argument("--sample-top-k", type=int, default=20,
+                        help="Generation top_k; named separately from --top-k, which controls HTML candidates.")
+    parser.add_argument("--min-p", type=float, default=0.0)
+    parser.add_argument("--repetition-penalty", type=float, default=1.0)
     parser.add_argument("--no-chat", action="store_true", help="Feed the raw problem text (skip chat template).")
     parser.add_argument("--think", action="store_true", help="Enable thinking mode if the chat template supports it.")
     parser.add_argument("--out", default="reports",
@@ -556,6 +595,10 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     use_chat = (not args.no_chat) and bool(tokenizer.chat_template)
     print(f"model={model_name} rank_fraction={rank_fraction} chat_template={'yes' if use_chat else 'no'}", flush=True)
+    print(f"decoding={'sampling' if args.sample else 'greedy'} temperature={args.temperature} "
+          f"top_p={args.top_p} top_k={args.sample_top_k} min_p={args.min_p} "
+          f"repetition_penalty={args.repetition_penalty}",
+          flush=True)
 
     # ---- phase A: master generates + scores each rollout, then is freed ----
     print("Loading master (full rank) ...", flush=True)
@@ -564,7 +607,9 @@ def main() -> None:
     print(f"  loaded in {time.perf_counter()-t0:.0f}s", flush=True)
 
     runs: list[dict] = []
-    for idx in indices:
+    for idx in tqdm(
+        indices, desc="master rollouts", unit="problem", dynamic_ncols=True, mininterval=1.0
+    ):
         problem = ds[idx]["problem"]
         meta = {
             "index": idx, "problem": problem,
@@ -576,7 +621,10 @@ def main() -> None:
         t0 = time.perf_counter()
         full_ids, prompt_len, m_probs, m_logits = rollout_and_score(
             master, input_ids, max_new_tokens=args.max_new_tokens, do_sample=args.sample,
-            pad_token_id=pad_id, device=device,
+            pad_token_id=pad_id, eos_token_id=tokenizer.eos_token_id, device=device,
+            temperature=args.temperature, top_p=args.top_p, top_k_sample=args.sample_top_k,
+            min_p=args.min_p, repetition_penalty=args.repetition_penalty,
+            progress_desc=f"master p{idx}",
         )
         gen_n = full_ids.shape[0] - prompt_len
         print(f"[problem {idx}] generated {gen_n} tokens in {time.perf_counter()-t0:.0f}s "
@@ -595,7 +643,9 @@ def main() -> None:
     print(f"  loaded in {time.perf_counter()-t0:.0f}s", flush=True)
 
     reports = []
-    for run in runs:
+    for run in tqdm(
+        runs, desc="novice scoring", unit="problem", dynamic_ncols=True, mininterval=1.0
+    ):
         n_probs, n_logits = score_sequence(novice, run["full_ids"], device=device)
         entries, stats = build_token_data(
             tokenizer, run["full_ids"], run["prompt_len"],

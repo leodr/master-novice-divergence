@@ -13,6 +13,7 @@ one checkpoint covers every rank without re-running disentanglement.
 from __future__ import annotations
 
 import argparse
+import os
 import time
 
 import torch
@@ -20,9 +21,9 @@ from tqdm import tqdm
 from transformers import StoppingCriteria, StoppingCriteriaList
 
 try:
-    from .novice_model import NoviceModel
+    from .novice_model import MANIFEST_NAME, NoviceModel
 except ImportError:
-    from novice_model import NoviceModel
+    from novice_model import MANIFEST_NAME, NoviceModel
 
 
 C_DIM, C_BOLD, C_CYAN, C_GREEN, C_RESET = "\033[2m", "\033[1m", "\033[36m", "\033[32m", "\033[0m"
@@ -58,6 +59,16 @@ def default_device() -> str:
     return "cpu"
 
 
+def sharded_checkpoint_dir(path: str) -> str | None:
+    """Return the shard directory when ``path`` points at/inside one."""
+    if os.path.isdir(path) and os.path.exists(os.path.join(path, MANIFEST_NAME)):
+        return path
+    parent = os.path.dirname(path)
+    if parent and os.path.exists(os.path.join(parent, MANIFEST_NAME)):
+        return parent
+    return None
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("-p", "--prompt", required=True, help="Prompt text to continue.")
@@ -82,22 +93,35 @@ def main() -> None:
 
     print(f"\n{C_BOLD}Novice token generation{C_RESET}  {C_DIM}(disentangled Qwen3.5){C_RESET}\n")
 
-    # 1. Load factors directly onto the compute device, so the reconstruction
-    #    matmuls in step 2 run there (baking on CPU is ~100x slower).
-    stage("Loading disentangled factors")
-    kv("checkpoint", args.checkpoint)
-    kv("device", args.device)
-    novice = NoviceModel.from_checkpoint(args.checkpoint, device=args.device)
-    n_layers = novice.num_factored_layers
-    kv("base model", novice.model_name)
-    kv("disentangled", f"{n_layers} MLP layers  (trained at rank {novice.rank_fraction})")
+    # 1. Load factors directly onto the compute device. A sharded checkpoint is
+    #    baked layer-by-layer while loading so the full factor set is never resident.
+    shard_dir = sharded_checkpoint_dir(args.checkpoint)
+    if shard_dir is not None:
+        stage("Loading sharded factors (baking layer-by-layer)")
+        kv("checkpoint", shard_dir)
+        kv("device", args.device)
+        stage(f"Baking rank_fraction={args.rank_fraction}")
+        novice = NoviceModel.from_sharded_checkpoint(
+            shard_dir, rank_fraction=args.rank_fraction, device=args.device, baked=True
+        ).eval()
+        kv("base model", novice.model_name)
+        model = novice.model
+    else:
+        stage("Loading disentangled factors")
+        kv("checkpoint", args.checkpoint)
+        kv("device", args.device)
+        novice = NoviceModel.from_checkpoint(args.checkpoint, device=args.device)
+        n_layers = novice.num_factored_layers
+        kv("base model", novice.model_name)
+        kv("disentangled", f"{n_layers} MLP layers  (trained at rank {novice.rank_fraction})")
 
-    # 2. Bake the chosen inference rank into dense weights (one matmul/layer on device).
-    keep, full = novice.rank_at(args.rank_fraction)
-    stage(f"Baking rank_fraction={args.rank_fraction}")
-    kv("kept rank", f"{keep}/{full}  ({keep/full:.0%} kept, {1-keep/full:.0%} truncated)")
-    with tqdm(total=n_layers, desc="materializing", unit="layer", leave=True, dynamic_ncols=True) as bar:
-        model = novice.bake(args.rank_fraction, in_place=True, progress_callback=bar.update)
+        # 2. Bake the chosen inference rank into dense weights (one matmul/layer on device).
+        keep, full = novice.rank_at(args.rank_fraction)
+        stage(f"Baking rank_fraction={args.rank_fraction}")
+        kv("kept rank", f"{keep}/{full}  ({keep/full:.0%} kept, {1-keep/full:.0%} truncated)")
+        with tqdm(total=n_layers, desc="materializing", unit="layer", leave=True, dynamic_ncols=True) as bar:
+            model = novice.bake(args.rank_fraction, in_place=True, progress_callback=bar.update)
+        model = model.model
     model = model.eval()
 
     # 3. Tokenize.
