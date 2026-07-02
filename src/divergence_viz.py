@@ -168,6 +168,31 @@ def softmax_np(logits: torch.Tensor) -> np.ndarray:
     return torch.softmax(logits.float(), dim=-1).numpy()
 
 
+# Number of positions whose logits are materialized on the GPU at once when
+# scoring a fixed sequence. A full [T, vocab] logits tensor for a multi-thousand
+# token rollout is several GiB and OOMs small GPUs, so we run the LM head over
+# the sequence in time-slices and move each slice to CPU.
+SCORE_CHUNK = 1024
+
+
+@torch.no_grad()
+def score_logits_chunked(model, input_ids: torch.Tensor, *, device: str,
+                         chunk_size: int = SCORE_CHUNK) -> torch.Tensor:
+    """Logits for every position of a fixed ``[1, T]`` sequence, on CPU (float32).
+
+    Equivalent to ``model(input_ids).logits[0]`` but computes the LM head in
+    ``chunk_size`` time-slices so GPU peak memory is ``[chunk_size, vocab]``
+    rather than ``[T, vocab]`` — the difference between fitting and OOMing on a
+    long rollout. Works for both the raw HF master and the ``NoviceModel`` wrapper.
+    """
+    hf = model.model if isinstance(model, NoviceModel) else model
+    input_ids = input_ids.to(device)
+    hidden = hf.model(input_ids=input_ids).last_hidden_state[0]  # [T, H] on device
+    parts = [hf.lm_head(hidden[s:s + chunk_size]).float().cpu()
+             for s in range(0, hidden.shape[0], chunk_size)]
+    return torch.cat(parts, dim=0)  # [T, V] on CPU
+
+
 # --------------------------------------------------------------------------- #
 # generation + scoring
 # --------------------------------------------------------------------------- #
@@ -224,7 +249,7 @@ def rollout_and_score(model, input_ids: torch.Tensor, *, max_new_tokens: int, do
         progress.close()
     full_ids = generated[0].detach().cpu()
 
-    logits = model(generated).logits[0].detach().to("cpu")
+    logits = score_logits_chunked(model, generated, device=device)
     probs = softmax_np(logits)
     return full_ids, prompt_len, probs, logits
 
@@ -232,7 +257,7 @@ def rollout_and_score(model, input_ids: torch.Tensor, *, max_new_tokens: int, do
 @torch.no_grad()
 def score_sequence(model, full_ids: torch.Tensor, *, device: str) -> tuple[np.ndarray, torch.Tensor]:
     """Teacher-forced forward of a fixed sequence -> (probs[T, V], logits[T, V]) on CPU."""
-    logits = model(full_ids.unsqueeze(0).to(device)).logits[0].detach().to("cpu")
+    logits = score_logits_chunked(model, full_ids.unsqueeze(0), device=device)
     return softmax_np(logits), logits
 
 
@@ -298,12 +323,12 @@ def main() -> None:
     parser.add_argument("--problem-indices", default="0", help="Comma-separated MATH-500 indices.")
     parser.add_argument("--dataset", default="HuggingFaceH4/MATH-500")
     parser.add_argument("--split", default="test")
-    parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--max-new-tokens", type=int, default=8192)
     parser.add_argument("--top-k", type=int, default=10)
-    parser.add_argument("--rank-fraction", type=float, default=None, help="Override the manifest rank.")
+    parser.add_argument("--rank-fraction", type=float, default=0.5, help="Override the manifest rank.")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--dtype", default="bfloat16", choices=["bfloat16", "float16", "float32"])
-    parser.add_argument("--sample", action="store_true", help="Sample instead of greedy decoding.")
+    parser.add_argument("--greedy", action="store_true", help="Greedy decoding instead of the default sampling.")
     parser.add_argument("--temperature", type=float, default=TEMPERATURE)
     parser.add_argument("--top-p", type=float, default=TOP_P)
     parser.add_argument("--sample-top-k", type=int, default=TOP_K,
@@ -319,6 +344,7 @@ def main() -> None:
 
     device = resolve_device(args.device)
     dtype = resolve_dtype(args.dtype)
+    do_sample = not args.greedy
     indices = [int(x) for x in args.problem_indices.split(",") if x.strip() != ""]
     print(f"device={device} dtype={args.dtype} problems={indices}", flush=True)
 
@@ -330,7 +356,7 @@ def main() -> None:
     ds = load_dataset(args.dataset, split=args.split)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
     print(f"model={model_name} rank_fraction={rank_fraction}", flush=True)
-    print(f"decoding={'sampling' if args.sample else 'greedy'} temperature={args.temperature} "
+    print(f"decoding={'sampling' if do_sample else 'greedy'} temperature={args.temperature} "
           f"top_p={args.top_p} top_k={args.sample_top_k} min_p={args.min_p} "
           f"repetition_penalty={args.repetition_penalty} presence_penalty={args.presence_penalty}",
           flush=True)
@@ -355,7 +381,7 @@ def main() -> None:
         pad_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
         t0 = time.perf_counter()
         full_ids, prompt_len, m_probs, m_logits = rollout_and_score(
-            master, input_ids, max_new_tokens=args.max_new_tokens, do_sample=args.sample,
+            master, input_ids, max_new_tokens=args.max_new_tokens, do_sample=do_sample,
             pad_token_id=pad_id, eos_token_id=tokenizer.eos_token_id, device=device,
             temperature=args.temperature, top_p=args.top_p, top_k_sample=args.sample_top_k,
             min_p=args.min_p, repetition_penalty=args.repetition_penalty,
@@ -406,8 +432,17 @@ def main() -> None:
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
 
+    decoding = {
+        "sample": do_sample,
+        "max_new_tokens": args.max_new_tokens,
+        "repetition_penalty": args.repetition_penalty,
+        "presence_penalty": args.presence_penalty,
+    }
+    if do_sample:
+        decoding.update(temperature=args.temperature, top_p=args.top_p,
+                        top_k=args.sample_top_k, min_p=args.min_p)
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(render_html(reports, model_name, rank_fraction))
+        fh.write(render_html(reports, model_name, rank_fraction, decoding))
     print(f"Done. Wrote {len(reports)} rollout(s) -> {path}", flush=True)
 
 

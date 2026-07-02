@@ -44,15 +44,27 @@ def _decorate_tokens(tokens: list[dict]) -> None:
         t["hue"] = HUE_PALETTE[t["i"] % len(HUE_PALETTE)]
 
 
-def render_html(reports: list[dict], model_name: str, rank_fraction: float) -> str:
+def render_html(
+    reports: list[dict],
+    model_name: str,
+    rank_fraction: float,
+    decoding: dict | None = None,
+) -> str:
     """Render one self-contained page holding one or more rollouts.
 
     Each entry of ``reports`` is ``{"meta": ..., "stats": ..., "tokens": ...}``;
     the page shows a selector to switch between them when there is more than one.
+    ``decoding`` carries the sampling configuration used for the rollouts and is
+    surfaced in the page header.
     """
     for report in reports:
         _decorate_tokens(report["tokens"])
-    data = {"model": model_name, "rank_fraction": rank_fraction, "reports": reports}
+    data = {
+        "model": model_name,
+        "rank_fraction": rank_fraction,
+        "decoding": decoding or {},
+        "reports": reports,
+    }
     payload = json.dumps(data, ensure_ascii=False)
     title = html.escape(f"Divergence — {model_name} (rf={rank_fraction})")
     return _HTML_TEMPLATE.replace("/*__DATA__*/", payload).replace("__TITLE__", title)
@@ -78,6 +90,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 28px 120px; }
   header h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; }
   header .sub { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  header .sub.dec { margin-top: -18px; font-variant-numeric: tabular-nums; }
+  header .sub.dec:empty { display: none; }
   .selectbar { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
   .selectbar label { font-size: 13px; font-weight: 600; }
   .selectbar select {
@@ -85,6 +99,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     border: 1px solid var(--border); background: #fff; color: var(--fg); cursor: pointer;
   }
   .selectbar .muted { color: var(--muted); font-size: 12px; }
+  .threshbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+  .threshbar label { font-size: 13px; font-weight: 600; }
+  .threshbar input[type=range] { width: 260px; accent-color: var(--novice); cursor: pointer; }
+  .threshbar .muted { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   .statbar { display: flex; gap: 40px; margin-bottom: 8px; flex-wrap: wrap; }
   .stat .label { font-size: 13px; font-weight: 600; color: var(--fg); }
   .stat .value { font-size: 30px; font-weight: 600; letter-spacing: -0.5px; }
@@ -154,11 +172,18 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <header>
     <h1 id="h-title"></h1>
     <div class="sub" id="h-sub"></div>
+    <div class="sub dec" id="h-dec"></div>
   </header>
   <div class="selectbar" id="selectbar">
     <label for="sel">Rollout</label>
     <select id="sel"></select>
     <span class="muted" id="sel-info"></span>
+  </div>
+  <div class="threshbar" id="threshbar">
+    <label for="thresh">JS highlight threshold</label>
+    <input type="range" id="thresh" min="0" value="0">
+    <span class="muted" id="th-val"></span>
+    <span class="muted">— tokens below this JS divergence are not tinted</span>
   </div>
   <div class="statbar" id="statbar"></div>
   <div class="problem" id="problem"></div>
@@ -194,6 +219,27 @@ document.getElementById('h-title').textContent = 'Master vs Novice — next-toke
 document.getElementById('h-sub').textContent =
   DATA.model + '  ·  rank fraction ' + DATA.rank_fraction + '  ·  ' + DATA.reports.length + ' rollout(s)';
 
+// decoding config
+function decodingSummary(D){
+  if (!D || Object.keys(D).length === 0) return '';
+  const parts = [];
+  if (D.sample) {
+    parts.push('sampling');
+    if (D.temperature != null) parts.push('T=' + D.temperature);
+    if (D.top_p != null) parts.push('top_p=' + D.top_p);
+    if (D.top_k != null) parts.push('top_k=' + D.top_k);
+    if (D.min_p) parts.push('min_p=' + D.min_p);
+  } else {
+    parts.push('greedy');
+  }
+  if (D.repetition_penalty != null && D.repetition_penalty !== 1) parts.push('rep_pen=' + D.repetition_penalty);
+  if (D.presence_penalty) parts.push('pres_pen=' + D.presence_penalty);
+  if (D.max_new_tokens != null) parts.push('max_new_tokens=' + D.max_new_tokens);
+  return parts.join('  ·  ');
+}
+const decSub = decodingSummary(DATA.decoding);
+if (decSub) document.getElementById('h-dec').textContent = decSub;
+
 // rollout selector
 const sel = document.getElementById('sel');
 DATA.reports.forEach((R, i) => {
@@ -206,6 +252,25 @@ DATA.reports.forEach((R, i) => {
 });
 sel.addEventListener('change', () => { unpin(); hidePop(); active = +sel.value; renderReport(); });
 if (DATA.reports.length <= 1) document.getElementById('selectbar').style.display = 'none';
+
+// JS-divergence highlight threshold: tokens below the slider value are left untinted.
+const slider = document.getElementById('thresh');
+const thVal = document.getElementById('th-val');
+let maxJs = 0;
+DATA.reports.forEach(R => R.tokens.forEach(t => { if (t.js != null && t.js > maxJs) maxJs = t.js; }));
+slider.max = maxJs || 1;
+slider.step = (maxJs || 1) / 200;
+function applyThreshold(){
+  const th = +slider.value;
+  thVal.textContent = th.toFixed(4);
+  const R = DATA.reports[active];
+  stream.querySelectorAll('.tok').forEach(sp => {
+    const tk = R.tokens[+sp.dataset.i];
+    sp.style.background = (tk.js != null && tk.js >= th)
+      ? `hsla(${tk.hue},68%,72%,${tk.alpha})` : 'transparent';
+  });
+}
+slider.addEventListener('input', applyThreshold);
 
 function renderReport(){
   const R = DATA.reports[active];
@@ -228,7 +293,6 @@ function renderReport(){
     sp.dataset.i = tk.i;
     if (tk.cand) {
       sp.className = 'tok' + (tk.i === S.prompt_len ? ' gen-start' : '');
-      sp.style.background = `hsla(${tk.hue},68%,72%,${tk.alpha})`;
       sp.addEventListener('mouseenter', () => { if (!pinned) showPop(tk, sp); });
       sp.addEventListener('mouseleave', () => { if (!pinned) hidePop(); });
       sp.addEventListener('click', (e) => {
@@ -241,6 +305,7 @@ function renderReport(){
     }
     stream.appendChild(sp);
   });
+  applyThreshold();
 }
 renderReport();
 
