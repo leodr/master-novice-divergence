@@ -536,3 +536,8 @@ mmlu_*.json
 
 # Divergence visualizer reports
 reports/
+
+# Presentation: downloaded reference papers, scratch notes
+presentation/2506.01939v2.pdf
+presentation/2604.14084v1.pdf
+presentation/Untitled
