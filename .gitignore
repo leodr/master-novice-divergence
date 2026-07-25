@@ -541,3 +541,6 @@ reports/
 presentation/2506.01939v2.pdf
 presentation/2604.14084v1.pdf
 presentation/Untitled
+
+# Claude Code local settings
+.claude/settings.local.json
