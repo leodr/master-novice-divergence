@@ -1,0 +1,191 @@
+
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{rgstyle}
+
+% --------------------------------------------------
+% Packages
+% --------------------------------------------------
+
+\RequirePackage[margin=1in]{geometry}
+\RequirePackage{graphicx}
+\RequirePackage{multicol}
+\RequirePackage{tcolorbox}
+\RequirePackage{hyperref}
+\RequirePackage{etoolbox}
+\RequirePackage{authblk}
+\RequirePackage{fancyhdr}
+
+\RequirePackage{titlesec}
+\RequirePackage[numbers]{natbib}
+
+% Force author-year style like ACL/ICML
+\setcitestyle{authoryear,round}
+
+% --------------------------------------------------
+% Section hierarchy (consistent sizing)
+% --------------------------------------------------
+
+\titleformat{\section}
+  {\bfseries\normalsize}
+  {\thesection}{0.6em}{}
+
+\titleformat{\subsection}
+  {\bfseries\small}
+  {\thesubsection}{0.6em}{}
+
+\titleformat{\subsubsection}
+  {\bfseries\footnotesize}
+  {\thesubsubsection}{0.6em}{}
+
+\titlespacing{\section}{0pt}{0.8em}{0.4em}
+
+\renewcommand{\headrulewidth}{0pt}
+
+\AtBeginDocument{
+\fontsize{8.8pt}{10.5pt}\selectfont
+}
+
+% --------------------------------------------------
+% Logos
+% --------------------------------------------------
+\newcommand{\leftlogo}{}
+\newcommand{\rightlogo}{}
+
+\newcommand{\setleftlogo}[1]{\renewcommand{\leftlogo}{#1}}
+\newcommand{\setrightlogo}[1]{\renewcommand{\rightlogo}{#1}}
+
+\newcommand{\makelogos}{
+\vspace*{-0.7cm}
+
+\noindent
+\begin{minipage}{0.5\linewidth}
+% \includegraphics[height=0.8cm]{\leftlogo}
+\vspace*{0.4cm}
+\footnotesize \textbf{School of Computation, Information and Technology \\
+Technical University of Munich}
+\end{minipage}
+\begin{minipage}{0.5\linewidth}
+\raggedleft
+\includegraphics[height=0.8cm]{\rightlogo}
+\end{minipage}
+
+% \vspace{0.4cm}
+}
+
+% --------------------------------------------------
+% Author block
+% --------------------------------------------------
+
+\newcommand{\rgauthors}{}
+\newcommand{\rgaffiliations}{}
+\newcommand{\rgemails}{}
+
+\newcommand{\setauthors}[1]{\renewcommand{\rgauthors}{#1}}
+\newcommand{\setaffiliations}[1]{\renewcommand{\rgaffiliations}{#1}}
+\newcommand{\setemails}[1]{\renewcommand{\rgemails}{#1}}
+
+% --------------------------------------------------
+% Title Block
+% --------------------------------------------------
+
+\makeatletter
+
+\newcommand{\makepapertitle}{
+\begin{center}
+\vspace{-0.4em}
+\rule{\textwidth}{1.0pt}
+\vspace{0.0em}
+
+{\Large\bfseries \@title \par}
+
+\vspace{0.7em}
+
+\rule{\textwidth}{1.0pt}
+
+\vspace{1em}
+
+\rgauthors
+
+\vspace{0.5em}
+
+{\small \rgaffiliations}
+
+\vspace{0.5em}
+
+{\small \texttt{\rgemails}}
+
+\end{center}
+
+% \vspace{0.8em}
+
+}
+
+\makeatother
+
+% --------------------------------------------------
+% Abstract Box
+% --------------------------------------------------
+\tcbset{
+rgabstract/.style={
+colback=white,
+colframe=black,
+arc=3mm,
+boxrule=0.7pt,
+width=.85\textwidth,
+center
+}
+}
+\newenvironment{rgabstractbox}{
+
+\begin{tcolorbox}[rgabstract]
+
+\textbf{Abstract: }
+}
+{\end{tcolorbox}}
+
+\newcommand{\rgkeywords}[1]{
+
+\vspace{0.6em}
+
+\textbf{Keywords:} \quad
+#1
+}
+
+\newcommand{\rgproject}[1]{
+
+\vspace{0.4em}
+
+\textbf{Project Page:} \quad \href{#1}{#1}
+}
+
+% --------------------------------------------------
+% Appendix switch
+% --------------------------------------------------
+
+\newcommand{\startappendix}{
+\clearpage
+\onecolumn
+\appendix
+}
+
+% --------------------------------------------------
+% Short title for headers
+% --------------------------------------------------
+
+\newcommand{\shorttitle}{}
+\newcommand{\setshorttitle}[1]{\renewcommand{\shorttitle}{#1}}
+
+% --------------------------------------------------
+% Page style
+% --------------------------------------------------
+
+\pagestyle{fancy}
+\fancyhf{}
+
+\fancyhead[L]{\normalsize\bfseries \shorttitle}
+
+\fancyhead[R]{\includegraphics[height=0.6cm]{\rightlogo}}
+
+\cfoot{\thepage}
+
+\renewcommand{\headrulewidth}{0.8pt}

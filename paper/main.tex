@@ -1,33 +1,44 @@
+\documentclass[9pt]{article}
 
-\documentclass[times, 10pt,twocolumn]{article}
-\usepackage{main}
-\usepackage{times}
+\usepackage{rgstyle}
+
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
 \usepackage{graphicx}
+\usepackage{float} % [H]: single-column floats must not float inside multicols
 \graphicspath{{figures/}}
 
-\pagestyle{empty}
+\title{Increasing Reward Quality and Density for Verifiable Rewards}
+\setshorttitle{Reward Quality and Density}
+
+\setauthors{
+Ana Carolina Ramos Cunha \quad Leonard Evers \quad Leonhard Driesch
+}
+
+\setaffiliations{
+School of Computation, Information and Technology \\
+Technical University of Munich
+}
+
+\setemails{
+ana.cunha@tum.de \quad ge95gih@mytum.de \quad leo.driesch@tum.de
+}
+
+\date{}
 
 \begin{document}
 
-\title{Increasing Reward Quality and Density for Verifiable Rewards}
-
-\author{Ana Carolina Ramos Cunha\\
-Technical University of Munich\\
-\and
-Leonard Evers\\
-Technical University of Munich\\
-\and
-Leonhard Driesch\\
-Technical University of Munich\\
-}
-
-\maketitle
+\setrightlogo{logos/2015_Logo_TUM_sw_RGB.pdf}
+\makelogos
 \thispagestyle{empty}
 
-\begin{abstract}
+\makepapertitle
+
+% --------------------------------------------------
+% Abstract
+% --------------------------------------------------
+\begin{rgabstractbox}
 Reinforcement learning for large language models on verifiable tasks (mathematics,
 code, and other domains with binary correctness checks) suffers from reward
 sparsity: only the final outcome receives a signal, leaving credit assignment
@@ -48,25 +59,34 @@ more fragile in the immediate continuation, and this effect survives
 controlling for Master entropy. We report these negative results
 precisely, characterize a coherence cliff that constrains usable Novice ranks,
 and discuss what they imply for divergence-based reward densification.
-\end{abstract}
 
+\rgkeywords{reinforcement learning, verifiable rewards, credit assignment, tensor disentanglement}
+\end{rgabstractbox}
 
-\Section{Introduction}
+\vspace{1.2em}
+
+% --------------------------------------------------
+% Main text
+% --------------------------------------------------
+\begin{multicols}{2}
+
+% --------------------------------------------------
+\section{Introduction}
 
 Large language models (LLMs) trained with reinforcement learning often receive
 only a sparse, verifiable reward at trajectory end (correct or
 incorrect) while intermediate tokens receive no direct feedback. This
 \emph{reward sparsity} impedes sample efficiency and credit assignment: the
 policy cannot tell which reasoning steps were load-bearing and which were
-routine~\cite{cui2025prime}.
+routine~\citep{cui2025prime}.
 
 Recent work densifies rewards without human step labels by exploiting structure
 already present in the task or the model: partial test-case success in
-code~\cite{wang2026verpo}, implicit process rewards trained from outcome labels
-alone~\cite{cui2025prime}, teacher--student divergence in
-distillation~\cite{xu2026tip}, and the observation that a minority of
+code~\citep{wang2026verpo}, implicit process rewards trained from outcome labels
+alone~\citep{cui2025prime}, teacher--student divergence in
+distillation~\citep{xu2026tip}, and the observation that a minority of
 high-entropy ``forking'' tokens concentrates most of the learning signal in
-RLVR~\cite{wang2025forking}.
+RLVR~\citep{wang2025forking}.
 
 This paper explores a complementary idea: construct a weaker \emph{Novice} from
 the same base weights as the \emph{Master} via tensor disentanglement, compare
@@ -91,17 +111,17 @@ cliff) and report a consistent, statistically quantified negative result on the
 central hypothesis, alongside one genuine positive: a local fragility effect at
 disagreement positions that is not explained by Master entropy alone.
 
-
-\Section{Related Work}
+% --------------------------------------------------
+\section{Related Work}
 
 We group prior work by where the dense signal comes from: the \emph{task}
 (verifiable structure) or the \emph{model} (internal statistics). For each line
 of work we focus on its relation to our approach; we refer to the original
 papers for full results.
 
-\SubSection{Dense rewards from verifiable task structure}
+\subsection{Dense rewards from verifiable task structure}
 
-\textbf{VeRPO}~\cite{wang2026verpo} densifies code-RL rewards using partial
+\textbf{VeRPO}~\citep{wang2026verpo} densifies code-RL rewards using partial
 test-case success. Its central observation is cautionary: the naive dense
 signal (the raw test-suite pass rate) can \emph{underperform} sparse outcome
 rewards, because redundant easy tests dominate the reward by sheer count (a
@@ -116,7 +136,7 @@ scope and granularity: the signal exists only where partial success is
 measurable (currently code) and is assigned per turn, whereas a Master/Novice
 comparator is task-agnostic and per token.
 
-\textbf{PRIME}~\cite{cui2025prime} obtains per-token process rewards without
+\textbf{PRIME}~\citep{cui2025prime} obtains per-token process rewards without
 step labels by training an outcome reward model whose log-ratio to a reference
 policy is reinterpreted as an implicit process reward, updated online alongside
 the policy. It substantially improves sample efficiency over outcome-only RL on
@@ -125,10 +145,9 @@ math and code. PRIME is the closest point of comparison for our goal
 PRIME \emph{learns} its dense signal, whereas we test whether a fixed,
 training-free capacity-reduced copy of the policy can supply one.
 
-\SubSection{Token-importance signals inside the model}
+\subsection{Token-importance signals inside the model}
 
-\textbf{High-entropy minority tokens.} Wang et
-al.~\cite{wang2025forking} show that in RLVR most chain-of-thought tokens are
+\textbf{High-entropy minority tokens.} \citet{wang2025forking} show that in RLVR most chain-of-thought tokens are
 low-entropy ``followers,'' while a minority of high-entropy forking tokens
 carries the learning signal: restricting policy gradients to the top 20\%
 highest-entropy tokens matches or exceeds full-gradient training. We selected
@@ -136,7 +155,7 @@ this work because Master entropy is the natural single-model baseline that any
 two-model divergence signal must beat; our experiments therefore control for
 entropy explicitly.
 
-\textbf{TIP}~\cite{xu2026tip} studies on-policy distillation and identifies
+\textbf{TIP}~\citep{xu2026tip} studies on-policy distillation and identifies
 informative tokens along two axes, student entropy and teacher-student
 divergence: entropy-only selection is structurally blind to positions where
 the student is confidently wrong, and training on under 10\% of tokens, from the
@@ -154,10 +173,10 @@ training, no task-specific verifier beyond the outcome check, and applies to
 any domain with verifiable answers; the price, as our results show, is that the
 signal it produces must be validated causally rather than assumed.
 
+% --------------------------------------------------
+\section{Methodology: Master/Novice Framework}
 
-\Section{Methodology: Master/Novice Framework}
-
-\SubSection{Setup and hypothesis}\label{sec:hypothesis}
+\subsection{Setup and hypothesis}\label{sec:hypothesis}
 
 We treat autoregressive generation as a Markov decision process: state $s_t$ is
 the prompt plus generated prefix $y_{<t}$, action $a_t$ is the next token, and
@@ -186,7 +205,7 @@ experiments because it is parameter-free and directly interpretable; the
 framework itself is agnostic to the divergence measure. This setup, where the full
 policy generates while its truncated counterpart re-scores the same
 states, instantiates the \emph{Observer pattern} of the weight-matrix
-disentanglement (WMD) introspection framework~\cite{till2026introspection},
+disentanglement (WMD) introspection framework~\citep{till2026introspection},
 and the top-1 flip corresponds to its discrete \emph{behavioral disagreement}
 indicator.
 
@@ -207,7 +226,7 @@ evaluate any RL training run: if H1 fails, divergence-weighted advantages
 cannot concentrate gradient where the outcome is decided, and the training
 experiment would be uninformative.
 
-\SubSection{Constructing the Novice via weight matrix disentanglement}\label{sec:wmd}
+\subsection{Constructing the Novice via weight matrix disentanglement}\label{sec:wmd}
 
 The Novice must be \emph{policy-preserving}: it should retain as much of the
 Master's behavior as a given rank budget permits, so that its remaining
@@ -215,9 +234,9 @@ disagreements are attributable to missing capacity rather than to a lossy
 construction. The classical route of using truncated SVD of each weight matrix, treats the matrix as a flat 2D
 array and ignores the multi-dimensional structure of neural weights. We
 instead use \emph{Weight Matrix Disentanglement}
-(WMD)~\cite{till2026introspection}, following the Master/Novice framework of
+(WMD)~\citep{till2026introspection}, following the Master/Novice framework of
 Till (sebis/TUM), which adapts tensor disentanglement from numerical linear
-algebra~\cite{wei2025tensor} to neural network layers.
+algebra~\citep{wei2025tensor} to neural network layers.
 
 Let $X \in \mathbb{R}^{lr \times bc}$ be a decoder-MLP weight matrix whose row
 and column counts are each written as a product of two integers, $lr$ split
@@ -268,7 +287,7 @@ singular directions kept, and the outer $\max$ with 1 guarantees at least one
 is retained.
 
 The optimization problem \eqref{eq:gauge} admits a closed-form gradient that
-reuses one SVD of $A(QX)$ per step~\cite{wei2025tensor}, and can be solved by
+reuses one SVD of $A(QX)$ per step~\citep{wei2025tensor}, and can be solved by
 Riemannian first- and second-order methods or by alternating minimization
 between $Q$ and the low-rank factors. Our pipeline (vendored from the
 reference disentanglement code) implements a significantly faster way to compute the disentanglement: by using Adam on a Cayley-parameterized
@@ -289,7 +308,7 @@ network-wide Fisher-information Lipschitz constant, a fixed factor that
 converts discarded weight energy into a bound on how much the output
 distribution can change and so measures the policy's sensitivity to
 perturbing its weights. At the rank the gauge was optimized for, the optimized gauge yields the tightest such
-bound~\cite{till2026introspection}. Two properties of our pipeline determine
+bound~\citep{till2026introspection}. Two properties of our pipeline determine
 how this applies to the Novices used below. First, baking truncates the
 \emph{stored factors} of $A(Q^{*}X)$ before inverting the reshape, exactly the
 construction in \eqref{eq:bake}, so the bound itself holds at every bake rank
@@ -302,7 +321,7 @@ checkpoint (Section~\ref{sec:characterization}). WMD rather than plain SVD
 thus keeps the observed Master/Novice divergence dominated by genuinely
 missing capacity rather than by avoidable truncation error.
 
-\SubSection{The \texttt{NoviceModel} pipeline}
+\subsection{The \texttt{NoviceModel} pipeline}
 
 The \texttt{NoviceModel} wrapper owns the full lifecycle: load a base causal
 LM, swap MLP linears, run disentanglement, persist factors to disk (monolithic
@@ -326,10 +345,10 @@ The pipeline was validated incrementally on toy weight matrices, MNIST- and
 CIFAR-scale MLPs, a small GPT-2-style transformer, Qwen3.5-0.8B-Base, and
 finally Qwen3.5-4B, the model used in all experiments below.
 
+% --------------------------------------------------
+\section{Experimental Setup}
 
-\Section{Experimental Setup}
-
-\SubSection{Models, data, and grading}
+\subsection{Models, data, and grading}
 
 \textbf{Models.} Master: \texttt{Qwen/Qwen3.5-4B} (full rank). Novice: the
 disentangled checkpoint of the same model (gauge optimized at $\rho{=}0.1$),
@@ -352,7 +371,7 @@ recorded at every generated position (10{,}895 scored tokens; flip rate
 12.3\%). Code and per-trial artifacts for all experiments are available from
 the authors.
 
-\SubSection{Novice characterization experiments}
+\subsection{Novice characterization experiments}
 
 \textbf{Learning-rate sweep.} Disentanglement quality is sensitive to the
 optimizer learning rate. We swept
@@ -371,7 +390,7 @@ comparisons are unaffected by the limit).
 than generation, we separately inspect greedy free-running generations of the
 Novice at $\rho \in \{0.1, 0.25, 0.5, 0.75\}$ on MATH-500 prompts.
 
-\SubSection{Intervention experiments}
+\subsection{Intervention experiments}
 
 All three experiments compare \emph{flip} positions against \emph{depth-matched
 non-flip controls}. The \emph{depth} of a position is its relative location
@@ -387,7 +406,7 @@ random seed.
 it receives the Master's prefix $y_{<p}$ and free-runs greedily to completion
 (budget: remaining rollout length plus 48 tokens); the completed trajectory is
 graded. This mirrors the deployment (``Actor'') pattern of the WMD
-framework~\cite{till2026introspection}, in which the truncated policy drives
+framework~\citep{till2026introspection}, in which the truncated policy drives
 the rollout. Release positions are selected as follows. Within each rollout,
 all flips are ranked by their \emph{confidence gap}: the probability the
 Novice assigns to its own preferred token minus the probability it assigns to
@@ -485,10 +504,10 @@ corresponds to $p \lesssim 0.05$. In every case a small $p$-value, a $t$-value
 past this threshold, or a CI that excludes the no-effect value would signal a
 real effect; as the next section shows, we observe none of these.
 
+% --------------------------------------------------
+\section{Results}
 
-\Section{Results}
-
-\SubSection{Novice characterization}\label{sec:characterization}
+\subsection{Novice characterization}\label{sec:characterization}
 
 \textbf{Learning rate.} Small rates converge slowly; rates
 $\geq 10^{-2}$ diverge (reconstruction cost increases). A mid-range rate near
@@ -532,9 +551,9 @@ generatively: released on the Master's own trajectories it completes them
 correctly only 26\% of the time (E1 below), yet its disagreements are attributable to specific positions
 rather than global incoherence.
 
-\begin{figure}[t]
+\begin{figure}[H]
   \centering
-  \includegraphics[width=\columnwidth]{mmlu_rank_sweep.png}
+  \includegraphics[width=\linewidth]{mmlu_rank_sweep.png}
   \caption{MMLU accuracy vs.\ Novice rank fraction on Qwen3.5-4B
     (\texttt{lm-eval}, 5-shot, 5 questions per subtask). Accuracy is preserved
     until $\rho \approx 0.5$, then degrades; note that at $\rho{=}0.1$ the
@@ -543,14 +562,22 @@ rather than global incoherence.
   \label{fig:mmlu}
 \end{figure}
 
-\SubSection{Intervention experiments}\label{sec:intervention-results}
+\subsection{Intervention experiments}\label{sec:intervention-results}
 
 Table~\ref{tab:outcome} summarizes the outcome-level results of all three
 experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
 
-\begin{table}[t]
-  \small
+\begin{table}[H]
+  \footnotesize
+  \setlength{\tabcolsep}{3.5pt}
   \centering
+  \caption{Outcome-level intervention results. E1 reports the Novice's
+    completion success rate after taking over at the given position (H1
+    predicts \emph{lower} success at flips). E2/E3 report the rate at which the
+    Master's free-run no longer reaches the correct answer after the
+    perturbation (H1 predicts \emph{higher} break rates at flips). No
+    comparison is significant; exact tests in the text.}
+  \label{tab:outcome}
   \begin{tabular}{llcc}
     \toprule
     Exp. & Arm & Rate & Count \\
@@ -567,18 +594,17 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
                            & flip-dense, Novice version & 0.152 & 7/46 \\
     \bottomrule
   \end{tabular}
-  \caption{Outcome-level intervention results. E1 reports the Novice's
-    completion success rate after taking over at the given position (H1
-    predicts \emph{lower} success at flips). E2/E3 report the rate at which the
-    Master's free-run no longer reaches the correct answer after the
-    perturbation (H1 predicts \emph{higher} break rates at flips). No
-    comparison is significant; exact tests in the text.}
-  \label{tab:outcome}
 \end{table}
 
-\begin{table}[t]
+\begin{table}[H]
   \small
   \centering
+  \caption{E2 graded metrics (means over 115 trials per arm). Local disruption
+    differs between flip and control positions; the answer-tied drop is
+    negligible for every arm. $H_M$: mean Master entropy at the perturbed
+    position, confirming that flips sit at high-entropy positions, hence the
+    entropy-adjusted analyses in the text.}
+  \label{tab:graded}
   \begin{tabular}{lccc}
     \toprule
     E2 arm & Local disr. & Answer drop & $H_M$ \\
@@ -589,12 +615,6 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
     control, rank-2    & 1.60 & 0.0013 & 0.08 \\
     \bottomrule
   \end{tabular}
-  \caption{E2 graded metrics (means over 115 trials per arm). Local disruption
-    differs between flip and control positions; the answer-tied drop is
-    negligible for every arm. $H_M$: mean Master entropy at the perturbed
-    position, confirming that flips sit at high-entropy positions, hence the
-    entropy-adjusted analyses in the text.}
-  \label{tab:graded}
 \end{table}
 
 \textbf{E1: no release-point effect.} Success after handing over at a flip was
@@ -662,10 +682,10 @@ likewise null ($\beta_1 = -0.0018$, SE $0.0023$, $t = -0.79$, $n{=}137$). Notabl
 recovered the correct answer after whole-step corruption in 84\% of all trials
 (126/150), independent of the step's flip density.
 
+% --------------------------------------------------
+\section{Discussion}
 
-\Section{Discussion}
-
-\SubSection{What the results mean for H1}
+\subsection{What the results mean for H1}
 
 Across three intervention designs of increasing strength, we consistently fail to reject the null. Particularly noteworthy is
 E3, whose free-running outcome metric gives downstream reasoning every chance
@@ -695,10 +715,10 @@ everything was null. The correct summary is that divergence and entropy are
 correlated, each carries independent \emph{local} information, and neither, in
 our setting, identifies outcome-critical positions. This is consistent with
 the interpretation of high-entropy tokens as \emph{forks} whose importance is
-realized over many rollouts during training~\cite{wang2025forking}, rather
+realized over many rollouts during training~\citep{wang2025forking}, rather
 than as counterfactually decisive positions within a single trajectory.
 
-\SubSection{Why the hypothesis may fail}
+\subsection{Why the hypothesis may fail}
 
 The premise behind H1 conflates two notions of importance: a step can be hard
 \emph{for a weaker model to produce} without being critical \emph{to the
@@ -707,12 +727,12 @@ confidence at delicate positions, which is exactly what the local-disruption eff
 detects. Meanwhile the mathematically decisive content is either redundantly
 encoded across the trajectory (the Master re-derives it after corruption) or
 concentrated in a few steps that flips do not preferentially mark. TIP's
-setting~\cite{xu2026tip} explains why the same signal can still be valuable in
+setting~\citep{xu2026tip} explains why the same signal can still be valuable in
 distillation: there, ``hard for the weaker model'' \emph{is} the training
 target, with no causal claim being needed. For RL credit assignment, our results show
 that the causal claim must be established separately, and here it fails.
 
-\SubSection{Limitations}
+\subsection{Limitations}
 
 Our conclusions are bounded by the setting: one Master (Qwen3.5-4B), one
 Novice family (MLP-only disentanglement with the gauge optimized at
@@ -731,7 +751,7 @@ continuous divergence measures (e.g., Jensen--Shannon mass aggregated per
 trajectory), sampled rather than greedy rollouts, and other Novice
 constructions remain untested and are natural follow-ups.
 
-\SubSection{Outlook}
+\subsection{Outlook}
 
 The infrastructure result stands independently of the negative: Master/Novice
 pairs can be produced repeatably at 4B scale, with rank fraction as a smooth,
@@ -740,14 +760,14 @@ H1's failure, we see three defensible directions: (i)~aggregate rather than
 pointwise use of divergence (e.g., trajectory-level divergence mass as a
 difficulty or novelty signal); (ii)~combining divergence with signals whose
 training-time value is established, such as entropy-based token
-selection~\cite{wang2025forking}, where divergence's independent local
+selection~\citep{wang2025forking}, where divergence's independent local
 information may still help; and (iii)~learned dense-reward approaches in the
-PRIME family~\cite{cui2025prime}, against which any future training-free
+PRIME family~\citep{cui2025prime}, against which any future training-free
 comparator should be benchmarked. Any of these should be preceded by the same
 kind of causal validation we applied here.
 
-
-\Section{Conclusion}
+% --------------------------------------------------
+\section{Conclusion}
 
 We formalized the Master/Novice framework for densifying verifiable rewards,
 built and validated the tensor-disentanglement pipeline that makes it
@@ -765,7 +785,6 @@ should precede RL integration. The released pipeline, the coherence-cliff
 characterization, and the three reusable intervention designs are intended to
 make exactly that validation cheap for future signals.
 
-
 \section*{AI-Use Statement}
 
 AI assistants were used for limited drafting and coding assistance during this
@@ -775,7 +794,12 @@ with editing and restructuring the manuscript. All content was reviewed,
 modified, and verified by the authors, who take full responsibility for the
 final work.
 
-\bibliographystyle{main}
+% --------------------------------------------------
+% Bibliography
+% --------------------------------------------------
+\bibliographystyle{plainnat}
 \bibliography{main}
+
+\end{multicols}
 
 \end{document}
