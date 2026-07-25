@@ -222,14 +222,14 @@ def figure_mmlu_rank_sweep(out_path: str) -> None:
     ax.axhline(0.25, ls=":", lw=0.8, color="#c0392b", label="random (0.25)")
     ax.plot(ranks, acc, "o-", color="#2980b9", markersize=3)
 
-    ax.set_xlim(1.05, 0.05)  # high rank (strong Novice) on the left
+    ax.set_xlim(0.05, 1.05)  # conventional ascending axis: weak Novice left
     ax.set_ylim(0.2, 0.8)
     ax.set_xlabel(r"Rank fraction $\rho$")
     ax.set_ylabel("MMLU accuracy (5-shot)")
     ax.grid(True, alpha=0.25)
     ax.spines[["top", "right"]].set_visible(False)
     ax.set_axisbelow(True)
-    ax.legend(loc="lower left", framealpha=0.9)
+    ax.legend(loc="lower right", framealpha=0.9)
 
     fig.tight_layout(pad=0.4)
     fig.savefig(out_path)
