@@ -61,6 +61,10 @@ Limitations may be a subsection of Discussion rather than its own section.
 
 ## Writing guidance
 
+This skill covers structure. For sentence-level revision — length, nominalization,
+old-to-new flow, filler, hedging — use the [`technical-prose`](../technical-prose/SKILL.md)
+skill.
+
 The course recommends Maxwell Forbes, ["How to get a paper accepted"](https://maxwellforbes.com/posts/how-to-get-a-paper-accepted/).
 Its thesis: **page 1 makes the reader want to accept the paper; the remaining pages remove
 reasons to reject it.** Apply its clarity advice, not its salesmanship.
