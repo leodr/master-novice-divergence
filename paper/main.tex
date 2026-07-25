@@ -7,7 +7,20 @@
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{float} % [H]: single-column floats must not float inside multicols
+\usepackage{pgf}   % \input{figures/*.pgf} from experiments/make_paper_figures.py
 \graphicspath{{figures/}}
+
+% Matplotlib's PGF output needs \mathdefault, display-style math and the font
+% size it was laid out at (see the header comment in any figures/*.pgf).
+% Scoped so none of it leaks into the surrounding document.
+\newcommand{\inputpgf}[1]{%
+  \begingroup
+  \def\mathdefault##1{##1}%
+  \everymath=\expandafter{\the\everymath\displaystyle}%
+  \fontsize{8}{9.6}\selectfont
+  \input{#1}%
+  \endgroup
+}
 
 \title{Increasing Reward Quality and Density for Verifiable Rewards}
 \setshorttitle{Reward Quality and Density}
@@ -516,7 +529,7 @@ $10^{-3}$ minimizes cost while reaching a stable effective rank
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.6\textwidth]{lr_sweep.png}
+  \inputpgf{figures/lr_sweep.pgf}
   \caption{Learning-rate sweep for tensor disentanglement (Qwen3.5-0.8B MLP
     layer, 200 steps). Mid-range rates balance convergence speed and
     stability; large rates diverge.}
@@ -553,7 +566,7 @@ rather than global incoherence.
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=\linewidth]{mmlu_rank_sweep.png}
+  \inputpgf{figures/mmlu_rank_sweep.pgf}
   \caption{MMLU accuracy vs.\ Novice rank fraction on Qwen3.5-4B
     (\texttt{lm-eval}, 5-shot, 5 questions per subtask). Accuracy is preserved
     until $\rho \approx 0.5$, then degrades; note that at $\rho{=}0.1$ the
@@ -634,7 +647,7 @@ itself. H1 is not supported at this granularity.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.92\textwidth]{e1_release_depth.png}
+  \inputpgf{figures/e1_release_depth.pgf}
   \caption{E1 (release-from-here). Left: Novice completion success after
     taking over at flip vs.\ depth-matched control positions (115 pairs): no
     difference. Right: success by release-depth quartile (bin 0 = earliest
