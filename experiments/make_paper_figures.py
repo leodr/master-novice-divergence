@@ -55,6 +55,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT_DIR = os.path.join(REPO, "paper", "figures")
 LR_CSV = os.path.join(REPO, "experiments", "lr", "lr_sweep.csv")
 MMLU_CSV = os.path.join(REPO, "experiments", "mmlu_rank_sweep.csv")
+# Per-step tuning trace of the published rf=0.1 checkpoint; mirror of
+# novice-qwen3.5-4b-rf0.1_tuning.csv from the HF repo leodriesch/novice-qwen3.5-4b-rf0.1.
+TUNING_CSV = os.path.join(REPO, "experiments", "qwen3.5-4b_rf0.1_tuning.csv")
 
 # Warm (high lr) to cool (low lr), following the original figure.
 LR_COLORS = {
@@ -164,21 +167,21 @@ def figure_e1_release_depth(out_path: str, summary_path: str | None) -> None:
         pairs = summary["release_pairs"]
         binned = {int(k): v for k, v in summary["success_by_depth_bin"].items()}
 
-    fig, (ax_bar, ax_depth) = plt.subplots(1, 2, figsize=(6.3, 2.35))
+    # Single-column figure: narrow bar panel + depth curve, titles left to the
+    # caption. leverage_gap is control - flip (src/divergence_leverage.py:345):
+    # positive means releasing at a flip did worse, as H1 predicts.
+    fig, (ax_bar, ax_depth) = plt.subplots(
+        1, 2, figsize=(3.05, 1.95), width_ratios=[1, 1.9]
+    )
 
     ax_bar.bar(
         ["flip", "control"], [success_flip, success_control],
         color=[FLIP_COLOR, CONTROL_COLOR], width=0.6,
     )
+    for i, v in enumerate([success_flip, success_control]):
+        ax_bar.text(i, v + 0.03, f"{v:.2f}", ha="center", va="bottom", fontsize=7)
     ax_bar.set_ylim(0, 1)
-    ax_bar.set_ylabel("Novice success after release")
-    # leverage_gap is control - flip (src/divergence_leverage.py:345): positive
-    # means releasing at a flip did worse, as H1 predicts.
-    ax_bar.set_title(
-        rf"Release-from-here success"
-        "\n"
-        rf"(gap $={success_control - success_flip:+.3f}$, $n={pairs}$ pairs)"
-    )
+    ax_bar.set_ylabel("Success after release")
 
     bins = sorted(binned)
     ax_depth.plot(bins, [binned[b]["flip"] for b in bins], "o-",
@@ -187,9 +190,7 @@ def figure_e1_release_depth(out_path: str, summary_path: str | None) -> None:
                   color=CONTROL_COLOR, markersize=3, label="control")
     ax_depth.set_ylim(0, 1)
     ax_depth.set_xticks(bins)
-    ax_depth.set_xlabel(r"Release depth bin (0 = early $\rightarrow$ later)")
-    ax_depth.set_ylabel("Success")
-    ax_depth.set_title("Success vs.\\ release depth")
+    ax_depth.set_xlabel(r"Depth bin (0 = early)")
     ax_depth.legend(loc="upper left", framealpha=0.9)
 
     for ax in (ax_bar, ax_depth):
@@ -235,6 +236,53 @@ def figure_mmlu_rank_sweep(out_path: str) -> None:
     plt.close(fig)
 
 
+def figure_disentanglement_loss(out_path: str) -> None:
+    """Cost trajectories of all 96 matrices of the published rf=0.1 run."""
+    by_layer: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: {"step": [], "cost": []}
+    )
+    with open(TUNING_CSV, newline="") as fh:
+        for row in csv.DictReader(fh):
+            series = by_layer[row["layer"]]
+            series["step"].append(float(row["step"]))
+            series["cost"].append(float(row["cost"]))
+
+    proj_colors = {
+        "gate_proj": "#2980b9",
+        "up_proj": "#22b573",
+        "down_proj": "#c0392b",
+    }
+
+    # Sized for the appendix's one-column layout (matches lr_sweep width).
+    fig, ax = plt.subplots(figsize=(6.3, 2.8))
+    grouped: dict[str, list[list[float]]] = defaultdict(list)
+    for layer, series in by_layer.items():
+        proj = layer.rsplit(".", 1)[-1]
+        ax.plot(series["step"], series["cost"], "-", color=proj_colors[proj],
+                lw=0.45, alpha=0.30)
+        grouped[proj].append(series["cost"])
+
+    steps = sorted({s for series in by_layer.values() for s in series["step"]})
+    for proj, costs in grouped.items():
+        median = [sorted(c[i] for c in costs)[len(costs) // 2]
+                  for i in range(len(steps))]
+        ax.plot(steps, median, "-", color=proj_colors[proj], lw=1.4,
+                label=r"\texttt{%s}" % proj.replace("_", r"\_"))
+
+    ax.set_yscale("log")
+    ax.set_xlabel("Optimization step")
+    ax.set_ylabel("Truncation cost (log)")
+    ax.set_title(r"Disentanglement cost --- 96 matrices")
+    ax.grid(True, alpha=0.25)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_axisbelow(True)
+    ax.legend(loc="lower left", framealpha=0.9)
+
+    fig.tight_layout(pad=0.4)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -254,6 +302,10 @@ def main() -> None:
     mmlu_path = os.path.join(args.out, "mmlu_rank_sweep.pgf")
     figure_mmlu_rank_sweep(mmlu_path)
     print(f"wrote {mmlu_path}")
+
+    tuning_path = os.path.join(args.out, "disentanglement_loss.pgf")
+    figure_disentanglement_loss(tuning_path)
+    print(f"wrote {tuning_path}")
 
     e1_path = os.path.join(args.out, "e1_release_depth.pgf")
     figure_e1_release_depth(e1_path, args.leverage_summary)

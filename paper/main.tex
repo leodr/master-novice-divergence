@@ -5,10 +5,24 @@
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{booktabs}
+\usepackage{tabularx}
+% The template does not configure captions, so they inherit full body size;
+% set them one step smaller, as is conventional in conference layouts.
+\usepackage[font=small]{caption}
 \usepackage{graphicx}
 \usepackage{float} % [H]: single-column floats must not float inside multicols
 \usepackage{pgf}   % \input{figures/*.pgf} from experiments/make_paper_figures.py
+\usepackage{tikz}  % Figure 1 (concept overview); drafted in fig1_draft.tex
+\usetikzlibrary{positioning,arrows.meta,calc}
 \graphicspath{{figures/}}
+
+% Figure 1 palette (colorblind-safe blue/orange pair; gray is the intentional neutral)
+\definecolor{masterblue}{HTML}{2A78D6}
+\definecolor{noviceorange}{HTML}{EB6834}
+\definecolor{ctrlgray}{HTML}{8A8880}
+\definecolor{inksec}{HTML}{52514E}
+\definecolor{okgreen}{HTML}{008300}
+\definecolor{badred}{HTML}{B3261E}
 
 % Matplotlib's PGF output needs \mathdefault, display-style math and the font
 % size it was laid out at (see the header comment in any figures/*.pgf).
@@ -26,7 +40,7 @@
 \setshorttitle{Reward Quality and Density}
 
 \setauthors{
-Ana Carolina Ramos Cunha \quad Leonard Evers \quad Leonhard Driesch
+Ana Carolina Ramos Cunha \quad Leonhard Driesch \quad Leonard Evers
 }
 
 \setaffiliations{
@@ -35,7 +49,7 @@ Technical University of Munich
 }
 
 \setemails{
-ana.cunha@tum.de \quad ge95gih@mytum.de \quad leo.driesch@tum.de
+ana.cunha@tum.de \quad leo.driesch@tum.de \quad ge95gih@mytum.de
 }
 
 \date{}
@@ -83,6 +97,173 @@ and discuss what they imply for divergence-based reward densification.
 % --------------------------------------------------
 \begin{multicols}{2}
 
+% Figure 1: concept overview (drafted standalone in fig1_draft.tex). As a
+% full-width float inside multicols it lands at the top of page 2; the
+% template's tall abstract box leaves too little room on page 1.
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  x=1cm, y=1cm,
+  font=\scriptsize,
+  panel/.style={rounded corners=3pt, draw=black!15, fill=black!2},
+  num/.style={circle, fill=masterblue, text=white, font=\scriptsize\bfseries,
+              inner sep=1.6pt, minimum size=0.4cm},
+  ptitle/.style={font=\small\bfseries, anchor=west, text=black},
+  modelbox/.style={rounded corners=2pt, minimum width=2.5cm, minimum height=0.95cm,
+                   align=center, text=white, font=\footnotesize\bfseries},
+  tok/.style={rounded corners=1pt, minimum width=0.27cm, minimum height=0.32cm,
+              inner sep=0pt, draw=masterblue!35, fill=masterblue!12},
+  flip/.style={tok, draw=noviceorange!80!black, fill=noviceorange},
+  ctrl/.style={tok, draw=ctrlgray!90!black, thick, fill=black!8},
+  lab/.style={text=inksec, align=left},
+  arr/.style={-{Stealth[length=2.2mm]}, thick, black!60},
+  bolt/.style={badred, line width=0.9pt, -{Stealth[length=1.6mm]}},
+]
+
+% chevrons between panels (reading order 1→2, 3→4)
+\node[text=black!30, font=\Large] at (8.15, 6.7)  {$\blacktriangleright$};
+\node[text=black!30, font=\Large] at (8.15, 2.15) {$\blacktriangleright$};
+
+% ================= Panel 1 (top left): Make a weaker copy =================
+\draw[panel] (0,4.55) rectangle (8.0,8.85);
+\node[num] at (0.5,8.4) {1};
+\node[ptitle] at (0.8,8.4) {Make a weaker copy};
+
+\node[modelbox, fill=masterblue] (master) at (1.8,7.0)
+  {Master\\[-1pt]{\tiny\mdseries Qwen3.5-4B}};
+
+\node[modelbox, fill=noviceorange] (novice) at (6.2,7.0)
+  {Novice\\[-1pt]{\tiny\mdseries same model, weakened}};
+
+\draw[arr] (master.east) -- (novice.west);
+
+% singular-spectrum glyph below the arrow, centered in the gap between the boxes
+\begin{scope}[shift={($(master.east)!0.5!(novice.west)+(-0.72,-0.75)$)}]
+  \foreach [count=\i from 0] \h in {0.60,0.46,0.34,0.25,0.18,0.13,0.09,0.06}{
+    \pgfmathsetmacro{\xx}{\i*0.18}
+    \ifnum \i<2
+      \fill[noviceorange] (\xx,0) rectangle ++(0.13,\h);
+    \else
+      \fill[black!15] (\xx,0) rectangle ++(0.13,\h);
+    \fi
+  }
+  \draw[black!40, line width=0.4pt] (-0.04,0) -- (1.43,0);
+  \draw[dashed, inksec] (0.31,-0.06) -- (0.31,0.7);
+\end{scope}
+
+\node[lab, anchor=north, align=center] at (4.0,6.0)
+  {compress its MLP weights:\\keep 25\,\% of the rank\\[3pt]
+   {\tiny the amount of weakening is adjustable (the kept rank fraction $\rho$)}};
+
+% ================= Panel 2 (top right): See where it disagrees =================
+\draw[panel] (8.3,4.55) rectangle (16.3,8.85);
+\node[num] at (8.8,8.4) {2};
+\node[ptitle] at (9.1,8.4) {See where it disagrees};
+
+\node[lab, anchor=north west, text width=7.6cm] at (8.55,8.0)
+  {The Master solves a math problem; the Novice re-predicts every token.};
+
+% token strip
+\begin{scope}[shift={(8.85,6.3)}]
+  \foreach [count=\i from 0] \s in
+    {tok,tok,tok,tok,tok,flip,tok,tok,tok,tok,tok,flip,tok,tok,tok,tok}{
+    \node[\s] (t\i) at (\i*0.34,0) {};
+  }
+  \node[rounded corners=1pt, minimum height=0.32cm, inner sep=2.5pt,
+        draw=okgreen, fill=okgreen!10, font=\scriptsize, text=okgreen!70!black]
+        (ans) at (15*0.34+0.75,0) {\,$42$ \checkmark\,};
+  % flips label above, pointing down
+  \node[font=\scriptsize, text=noviceorange!85!black, anchor=south west]
+        (flab) at (0.3,0.6)
+        {flips: the Novice would have picked a different token};
+  \draw[noviceorange!85!black, line width=0.5pt] (1.5,0.55) to[out=-90,in=95] (t5.north);
+  \draw[noviceorange!85!black, line width=0.5pt] (3.4,0.55) to[out=-70,in=95] (t11.north);
+\end{scope}
+
+\node[lab, font=\tiny, anchor=north, align=center] at (11.5,6.0)
+  {(about 1 in 8 tokens is a flip)};
+
+\node[rounded corners=2pt, draw=black!25, fill=white, inner sep=5pt,
+      text width=6.6cm, align=center, font=\scriptsize\itshape] at (12.3,5.08)
+  {Hypothesis: these are the steps that decide whether the answer comes
+   out right.};
+
+% ================= Panel 3 (bottom left): Damage the solution =================
+\draw[panel] (0,0) rectangle (8.0,4.3);
+\node[num] at (0.5,3.85) {3};
+\node[ptitle] at (0.8,3.85) {Damage the solution};
+
+% strip with two damage bolts
+\begin{scope}[shift={(0.6,2.5)}]
+  \foreach [count=\i from 0] \s in
+    {tok,tok,tok,tok,flip,tok,tok,tok,ctrl,tok,tok,tok}{
+    \node[\s] (d\i) at (\i*0.34,0) {};
+  }
+  % lightning bolts onto the flip and the control token
+  \draw[bolt] (1.46,0.80) -- (1.34,0.52) -- (1.46,0.47) -- (1.34,0.20);
+  \draw[bolt] (2.82,0.80) -- (2.70,0.52) -- (2.82,0.47) -- (2.70,0.20);
+  % labels under the strip
+  \node[font=\scriptsize, text=noviceorange!85!black, anchor=north, align=center]
+    at (1.15,-0.3) {at a flip};
+  \node[font=\scriptsize, text=inksec, anchor=north, align=center]
+    at (3.1,-0.3) {or at a normal spot,\\equally far in};
+\end{scope}
+
+\draw[arr] (4.72,2.5) -- (5.44,2.5);
+\node[lab, font=\tiny, anchor=south, align=center] at (5.08,2.68) {Master\\finishes};
+
+\node[rounded corners=2pt, draw=black!25, fill=white, inner sep=5pt,
+      text width=1.7cm, align=center, font=\scriptsize] at (6.65,2.5)
+  {Is the final answer still correct?};
+
+\node[lab, font=\tiny, anchor=north, align=center, text width=7.4cm] at (4.0,1.1)
+  {Three kinds of damage, from mild to severe: change one token \,$\cdot$\,
+   corrupt a whole reasoning step \,$\cdot$\, let the Novice write the rest
+   (experiments E1--E3).};
+
+% ================= Panel 4 (bottom right): Result =================
+\draw[panel] (8.3,0) rectangle (16.3,4.3);
+\node[num] at (8.8,3.85) {4};
+\node[ptitle] at (9.1,3.85) {Result: no difference};
+
+\node[lab, font=\scriptsize\bfseries, anchor=west] at (8.7,3.25)
+  {how often the answer broke:};
+
+\begin{scope}[shift={(9.0,0.95)}]
+  % bars: E3 break rates .151 vs .176, scale x9
+  \draw[black!40, line width=0.4pt] (-0.25,0) -- (2.5,0);
+  \fill[noviceorange] (0,0)   rectangle ++(0.55,{0.151*9});
+  \fill[ctrlgray]     (1.75,0) rectangle ++(0.55,{0.176*9});
+  \node[font=\scriptsize, anchor=south] at (0.275,{0.151*9}) {15\,\%};
+  \node[font=\scriptsize, anchor=south] at (2.025,{0.176*9}) {18\,\%};
+  \node[font=\Large, text=inksec] at (1.15,0.7) {$\approx$};
+  \node[font=\tiny, text=inksec, anchor=north, align=center] at (0.275,-0.08)
+    {damage\\at flips};
+  \node[font=\tiny, text=inksec, anchor=north, align=center] at (2.025,-0.08)
+    {damage at\\normal spots};
+\end{scope}
+
+\node[lab, anchor=north west, text width=3.9cm] at (12.2,2.9)
+  {\textcolor{badred}{$\boldsymbol\times$}\; flips do \textbf{not} mark the
+   decisive steps --- the outcome is the same in all three experiments};
+
+\node[lab, anchor=north west, text width=3.9cm] at (12.2,1.55)
+  {\textcolor{okgreen}{\checkmark}\; the one real effect is local: the few
+   words right after a flip are disturbed more};
+
+\end{tikzpicture}
+\caption{What we did and what we found: \textbf{(1)}~compress a strong model's
+(\emph{Master's}) MLP weights into a weakened copy, the \emph{Novice};
+\textbf{(2)}~let the Novice re-predict the Master's correct MATH-500
+solutions and mark the disagreements (\emph{flips}); \textbf{(3)}~damage
+solutions at flips versus at depth-matched normal positions and let the
+Master finish. \textbf{(4)}~\emph{Takeaway:} the answer breaks equally often
+either way (shown: whole-step damage; all three experiments agree), so flips
+mark where the Novice's missing capacity acts --- not where the outcome is
+decided --- and this divergence signal cannot densify the reward.}
+\label{fig:overview}
+\end{figure*}
+
 % --------------------------------------------------
 \section{Introduction}
 
@@ -104,11 +285,12 @@ RLVR~\citep{wang2025forking}.
 This paper explores a complementary idea: construct a weaker \emph{Novice} from
 the same base weights as the \emph{Master} via tensor disentanglement, compare
 their next-token distributions on successful Master rollouts, and upweight
-positions where the two diverge: on the premise that such steps rely on
+positions where the two diverge, on the premise that such steps rely on
 knowledge the Novice lacks and therefore deserve higher credit. Unlike an
 externally trained reward model, the Novice shares architecture and tokenizer
 with the Master and offers a continuous knob (the retained rank fraction) for
-how weak the comparator should be.
+how weak the comparator should be. Figure~\ref{fig:overview} summarizes the
+approach and its outcome.
 
 Our contributions are of three kinds. \emph{Conceptually}, we formalize the
 Master/Novice framework and reduce its promise to a single testable hypothesis:
@@ -187,7 +369,7 @@ any domain with verifiable answers; the price, as our results show, is that the
 signal it produces must be validated causally rather than assumed.
 
 % --------------------------------------------------
-\section{Methodology: Master/Novice Framework}
+\section{Methodology}
 
 \subsection{Setup and hypothesis}\label{sec:hypothesis}
 
@@ -244,7 +426,7 @@ experiment would be uninformative.
 The Novice must be \emph{policy-preserving}: it should retain as much of the
 Master's behavior as a given rank budget permits, so that its remaining
 disagreements are attributable to missing capacity rather than to a lossy
-construction. The classical route of using truncated SVD of each weight matrix, treats the matrix as a flat 2D
+construction. The classical route, truncated SVD of each weight matrix, treats the matrix as a flat 2D
 array and ignores the multi-dimensional structure of neural weights. We
 instead use \emph{Weight Matrix Disentanglement}
 (WMD)~\citep{till2026introspection}, following the Master/Novice framework of
@@ -303,14 +485,15 @@ The optimization problem \eqref{eq:gauge} admits a closed-form gradient that
 reuses one SVD of $A(QX)$ per step~\citep{wei2025tensor}, and can be solved by
 Riemannian first- and second-order methods or by alternating minimization
 between $Q$ and the low-rank factors. Our pipeline (vendored from the
-reference disentanglement code) implements a significantly faster way to compute the disentanglement: by using Adam on a Cayley-parameterized
-orthogonal matrix (the Cayley transform expresses $Q$ through unconstrained
-parameters that an ordinary optimizer can update freely), which maintains
-exact orthogonality with an inexpensive backward pass, and by representing the weights in 32-bit floating-point
-precision during optimization, we achieve a speed-up of around 4x.
-Furthermore, layers are independent, so it is possible for all MLP
-projections to be processed in parallel and for their factors to be streamed
-to disk, which further speeds up the process. These optimizations are what made it feasible to construct the novice for the larger models we used for our primary tests, such as Qwen3.5-4B.
+reference disentanglement code) accelerates this optimization by roughly
+30--50$\times$ per layer through three stacked changes: Adam on a
+Cayley-parameterized orthogonal $Q$, reuse of the gradient's SVD within each
+step, and 32-bit floating-point precision throughout
+(Appendix~\ref{app:repro}); truncation cost stays within $\sim$10\% of the
+double-precision reference. Layers are independent, so all MLP projections
+are processed in parallel and their factors streamed to disk. These
+optimizations are what made it feasible to construct the Novice at the 4B
+scale used in our experiments.
 
 WMD also supplies the theoretical link between Novice construction and the
 divergence signal of Section~\ref{sec:hypothesis}: for a policy and its rank-$k$ truncated
@@ -359,7 +542,7 @@ CIFAR-scale MLPs, a small GPT-2-style transformer, Qwen3.5-0.8B-Base, and
 finally Qwen3.5-4B, the model used in all experiments below.
 
 % --------------------------------------------------
-\section{Experimental Setup}
+\section{Experiments}
 
 \subsection{Models, data, and grading}
 
@@ -370,9 +553,11 @@ Section~\ref{sec:characterization}.
 
 \textbf{Data.} MATH-500 (\texttt{HuggingFaceH4/MATH-500}), problems 0--49,
 prompted via the chat template with the standard instruction to place the
-final answer in \texttt{\textbackslash boxed\{\}}. All decoding is greedy with
-at most 700 new tokens, which sufficed for most rollouts to terminate
-naturally; greedy decoding makes every experiment deterministic up to the
+final answer in \texttt{\textbackslash boxed\{\}}. All decoding is greedy;
+Master rollouts are capped at 512 new tokens in E1 and 700 in E2/E3 (under
+greedy decoding the shared prefixes are identical, and the same 23 problems
+are solved), which sufficed for most rollouts to terminate naturally. Greedy
+decoding makes every experiment deterministic up to the
 fixed sampling seed used for control selection.
 
 \textbf{Grading.} A balanced-brace \texttt{\textbackslash boxed\{\}} extractor
@@ -381,18 +566,17 @@ normalization; numeric fallback). The Master solved 23/50 problems; all
 credit-assignment experiments operate on these 23 verified-correct rollouts.
 Across them, the Novice is teacher-forced on the Master's tokens and flips are
 recorded at every generated position (10{,}895 scored tokens; flip rate
-12.3\%). Code and per-trial artifacts for all experiments are available from
-the authors.
+12.3\%). The disentangled factor checkpoint is publicly available, and
+Appendix~\ref{app:repro} collects all remaining reproduction details (seeds,
+prompts, evaluation configuration); code and per-trial artifacts are
+available from the authors.
 
 \subsection{Novice characterization experiments}
 
-\textbf{Learning-rate sweep.} Disentanglement quality is sensitive to the
-optimizer learning rate. We swept
-$\{5{\times}10^{-4}, 10^{-3}, 5{\times}10^{-3}, 7{\times}10^{-3}, 10^{-2},
-2{\times}10^{-2}, 5{\times}10^{-2}\}$ for 200 steps on a representative
-Qwen3.5-0.8B MLP layer, tracking reconstruction cost (the discarded singular
-energy of \eqref{eq:gauge}, so lower is better) and effective rank (a soft
-count of how many singular directions carry meaningful energy).
+\textbf{Learning-rate selection.} Disentanglement quality is sensitive to the
+optimizer learning rate; a sweep on a representative Qwen3.5-0.8B MLP layer
+selects $10^{-3}$, used for all subsequent disentanglement runs
+(Appendix~\ref{app:lr}).
 
 \textbf{MMLU rank sweep.} Novice quality as a function of $\rho$ is measured
 with \texttt{lm-eval} on MMLU, 5-shot, limited to 5 questions per subtask
@@ -497,55 +681,32 @@ where one step pair without answer tokens after the span is excluded.
 
 \textbf{Statistical analysis.} We attach a standard test to each comparison so
 that a null result can be quantified rather than merely asserted. Every rate
-is reported with a 95\% Wilson confidence interval (CI), which is the range of
-true rates consistent with the observed counts; it is preferred over the
-textbook interval because it stays well-behaved for proportions near 0 or 1
-and for small samples. How two rates are compared depends on the design. E1's
-flip and control arms are \emph{paired}, since each flip has its own
-depth-matched control, so we use McNemar's exact test: it looks only at the
-pairs whose two arms gave different outcomes and asks whether one arm wins
-more often than a coin flip would predict. E2 and E3 treat their free-run arms
-as \emph{independent} groups, so we use Fisher's exact test on the
-two-by-two table of arm versus outcome; it summarizes the association as an
-\emph{odds ratio} (above 1 means the flip arm broke the answer more often,
-below 1 the reverse) and returns an exact $p$-value that remains valid at the
-small counts involved. For the regression coefficients $\beta_1$ and $\beta_2$
-we report the estimate, its standard error (SE, the estimate's uncertainty),
-and the $t$-value (estimate divided by SE), which counts how many standard
-errors the estimate lies from zero; at our sample sizes $|t| \gtrsim 2$
-corresponds to $p \lesssim 0.05$. In every case a small $p$-value, a $t$-value
-past this threshold, or a CI that excludes the no-effect value would signal a
-real effect; as the next section shows, we observe none of these.
+is reported with a 95\% Wilson confidence interval (CI). E1's flip and control
+arms are \emph{paired}, since each flip has its own depth-matched control, and
+are compared with McNemar's exact test; E2 and E3 treat their free-run arms as
+\emph{independent} groups, compared with Fisher's exact test, whose
+\emph{odds ratio} is above 1 when the flip arm broke the answer more often.
+For the regression coefficients $\beta_1$ and $\beta_2$ we report the
+estimate, its standard error (SE), and the $t$-value (estimate divided by
+SE); at our sample sizes $|t| \gtrsim 2$ corresponds to $p \lesssim 0.05$.
+Appendix~\ref{app:stats} explains each test and why it matches the design. In
+every case a small $p$-value, a $t$-value past this threshold, or a CI that
+excludes the no-effect value would signal a real effect; as the next section
+shows, we observe none of these.
 
 % --------------------------------------------------
 \section{Results}
 
 \subsection{Novice characterization}\label{sec:characterization}
 
-\textbf{Learning rate.} Small rates converge slowly; rates
-$\geq 10^{-2}$ diverge (reconstruction cost increases). A mid-range rate near
-$10^{-3}$ minimizes cost while reaching a stable effective rank
-(Figure~\ref{fig:lr}). All subsequent disentanglement runs use this regime.
-
-\begin{figure*}[t]
-  \centering
-  \inputpgf{figures/lr_sweep.pgf}
-  \caption{Learning-rate sweep for tensor disentanglement (Qwen3.5-0.8B MLP
-    layer, 200 steps). Mid-range rates balance convergence speed and
-    stability; large rates diverge.}
-  \label{fig:lr}
-\end{figure*}
-
 \textbf{Gauge quality across bake ranks.} The checkpoint's gauge was optimized
 at $\rho{=}0.1$ while the interventions bake at $\rho{=}0.25$, so the KL
 bound's tightness is not guaranteed at the bake rank
-(Section~\ref{sec:wmd}). Measured
-on the stored spectra, the advantage transfers: relative to identity-gauge
-(plain SVD) truncation in the same bipartition, the optimized gauge reduces
-the discarded tail energy to $0.60\times$ ($\rho{=}0.1$) and $0.58\times$
-($\rho{=}0.25$) on \texttt{layers.0.down\_proj}, and to $0.026\times$ and
-$0.025\times$ on \texttt{layers.31.up\_proj}: large (if heterogeneous across
-layers) and essentially rank-independent.
+(Section~\ref{sec:wmd}). Measured on the stored spectra, the advantage
+transfers: the optimized gauge's reduction of discarded tail energy relative
+to identity-gauge (plain SVD) truncation is large, if heterogeneous across
+layers, and essentially rank-independent between $\rho{=}0.1$ and
+$\rho{=}0.25$ (Appendix~\ref{app:gauge}).
 
 \textbf{MMLU vs.\ rank.} On Qwen3.5-4B (5-shot, 5 questions per subtask),
 accuracy stays near the base model's 0.737 down to $\rho \approx 0.5$, then
@@ -560,8 +721,8 @@ Master rollouts falls from 44.0\% at $\rho{=}0.1$ (disagreement smeared over
 half the tokens, i.e., noise) to 12.3\% at $\rho{=}0.25$ (concentrated
 disagreement). We therefore run all interventions at $\rho{=}0.25$, the
 sharpest coherent operating point: the Novice is far weaker than the Master
-generatively: released on the Master's own trajectories it completes them
-correctly only 26\% of the time (E1 below), yet its disagreements are attributable to specific positions
+generatively (released on the Master's own trajectories it completes them
+correctly only 26\% of the time; E1 below), yet its disagreements are attributable to specific positions
 rather than global incoherence.
 
 \begin{figure}[H]
@@ -645,7 +806,7 @@ arms succeed at $\approx 0.7$, in the earliest at $\approx 0$--$0.1$; the
 earlier the Novice takes over, the more of the solution it must produce
 itself. H1 is not supported at this granularity.
 
-\begin{figure*}[t]
+\begin{figure}[H]
   \centering
   \inputpgf{figures/e1_release_depth.pgf}
   \caption{E1 (release-from-here). Left: Novice completion success after
@@ -655,7 +816,7 @@ itself. H1 is not supported at this granularity.
     outcome is governed by how much of the Master's trajectory the Novice
     inherits, not by whether the release point is a flip.}
   \label{fig:release}
-\end{figure*}
+\end{figure}
 
 \textbf{E2: a local but not an outcome effect.} Perturbing at a flip disrupts
 the Master's immediate continuation substantially more than at a matched
@@ -675,7 +836,10 @@ in \emph{every} arm, with no flip effect ($\beta_1 = -0.0002$, SE $0.0017$,
 $t = -0.14$, i.e., essentially zero standard errors from no effect,
 $n{=}225$; 5 trials whose perturbed position lies after the answer span are
 excluded), and the free-run answer-break subset
-shows no coherent ordering (7/29, 3/30, and 6/31 broken answers per arm). The Novice's specific token adds nothing over the Master's own second
+shows no coherent ordering (7/29, 3/30, and 6/31 broken answers per arm;
+Fisher's exact test on the two \texttt{rank2} arms gives an odds ratio of
+0.46 with $p = 0.47$, numerically even in the direction opposite to H1, and
+no pairwise comparison approaches significance). The Novice's specific token adds nothing over the Master's own second
 choice at the same position: the paired difference is $+0.017$ nats/token
 locally (Novice larger in only 18\% of pairs) and $+0.0001$ on the answer
 metric (11\% of pairs).
@@ -745,25 +909,6 @@ distillation: there, ``hard for the weaker model'' \emph{is} the training
 target, with no causal claim being needed. For RL credit assignment, our results show
 that the causal claim must be established separately, and here it fails.
 
-\subsection{Limitations}
-
-Our conclusions are bounded by the setting: one Master (Qwen3.5-4B), one
-Novice family (MLP-only disentanglement with the gauge optimized at
-$\rho{=}0.1$, evaluated chiefly at $\rho{=}0.25$, where the truncation
-bound's tightness is verified empirically on sampled layers rather than
-guaranteed), one dataset (MATH-500; 23 Master-correct rollouts), greedy
-decoding, and top-1 flips as the divergence instantiation. The binary outcome metrics have
-modest power ($\sim$50--115 per arm; the reported CIs are correspondingly
-wide), though the consistency of the null across three designs and both graded
-and binary metrics argues against a large hidden effect. The MMLU sweep uses a
-fixed 5-question-per-subtask budget, adequate for relative comparisons across
-$\rho$ but not for absolute benchmark claims. The answer-tied drop metric
-teacher-forces intervening reasoning and is thus conservative by design; the
-free-run metrics in E1/E3 are the complementary, unconstrained tests. Finally,
-continuous divergence measures (e.g., Jensen--Shannon mass aggregated per
-trajectory), sampled rather than greedy rollouts, and other Novice
-constructions remain untested and are natural follow-ups.
-
 \subsection{Outlook}
 
 The infrastructure result stands independently of the negative: Master/Novice
@@ -778,6 +923,34 @@ information may still help; and (iii)~learned dense-reward approaches in the
 PRIME family~\citep{cui2025prime}, against which any future training-free
 comparator should be benchmarked. Any of these should be preceded by the same
 kind of causal validation we applied here.
+
+% --------------------------------------------------
+\section{Limitations}
+
+Our conclusions are bounded by the setting: one Master (Qwen3.5-4B), one
+Novice family (MLP-only disentanglement with the gauge optimized at
+$\rho{=}0.1$, evaluated chiefly at $\rho{=}0.25$, where the truncation
+bound's tightness is verified empirically on sampled layers rather than
+guaranteed), one dataset (MATH-500; 23 Master-correct rollouts), greedy
+decoding, and top-1 flips as the divergence instantiation. The gauge
+optimization was stopped after 40 compute-bounded steps with the cost still
+decreasing (Figure~\ref{fig:tuning}), so a fraction of the observed
+divergence may be avoidable truncation error rather than missing capacity,
+although the optimized gauge already clearly outperforms plain SVD at both
+ranks (Appendix~\ref{app:gauge}). The binary outcome metrics have
+modest power ($\sim$50--115 per arm; the reported CIs are correspondingly
+wide), though the consistency of the null across three designs and both graded
+and binary metrics argues against a large hidden effect. The regression
+standard errors treat positions as independent although they are clustered
+within the 23 rollouts, so the local-fragility $t$-statistic should be read
+as approximate. The MMLU sweep uses a
+fixed 5-question-per-subtask budget, adequate for relative comparisons across
+$\rho$ but not for absolute benchmark claims. The answer-tied drop metric
+teacher-forces intervening reasoning and is thus conservative by design; the
+free-run metrics in E1/E3 are the complementary, unconstrained tests. Finally,
+continuous divergence measures (e.g., Jensen--Shannon mass aggregated per
+trajectory), sampled rather than greedy rollouts, and other Novice
+constructions remain untested and are natural follow-ups.
 
 % --------------------------------------------------
 \section{Conclusion}
@@ -814,5 +987,141 @@ final work.
 \bibliography{main}
 
 \end{multicols}
+
+% --------------------------------------------------
+% Appendix
+% --------------------------------------------------
+\startappendix
+
+\section{Reproducibility details}\label{app:repro}
+
+Table~\ref{tab:hparams} collects every hyperparameter and configuration
+value used in the paper; the paragraphs below add only the details that need
+explanation rather than lookup.
+
+\begin{table}[H]
+  \centering
+  \caption{All hyperparameters and configuration values. Together with the
+    published factor checkpoint, these settings specify every experiment in
+    the paper; settings not listed use the released code's defaults.}
+  \label{tab:hparams}
+  \begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X}
+    \toprule
+    \multicolumn{2}{l}{\emph{Disentanglement (published checkpoint)}} \\
+    Master / base model & \texttt{Qwen/Qwen3.5-4B} \\
+    Factor checkpoint & \texttt{leodriesch/novice-qwen3.5-4b-rf0.1} (Hugging Face Hub) \\
+    Factored layers & 96 MLP linears (32 decoder layers $\times$ \{gate, up, down\}) \\
+    Gauge optimization rank & $\rho = 0.1$ \\
+    Optimizer, learning rate & Adam (Cayley-parameterized, fp32), $10^{-3}$ \\
+    Steps per layer & 40 (compute-budget cutoff; Figure~\ref{fig:tuning}) \\
+    Bake rank, all interventions & $\rho = 0.25$ \\
+    \midrule
+    \multicolumn{2}{l}{\emph{Data and decoding}} \\
+    Dataset & MATH-500 (\texttt{HuggingFaceH4/MATH-500}), test split, problems 0--49 \\
+    Decoding & greedy; rollouts capped at 512 new tokens (E1) / 700 (E2, E3) \\
+    Model precision & bfloat16 \\
+    Prompt format & chat template, thinking mode disabled \\
+    \midrule
+    \multicolumn{2}{l}{\emph{Interventions}} \\
+    Seed for controls and subsets & 0 (Python \texttt{random.Random}) \\
+    E1 releases & 5 flip/control pairs per rollout; budget $=$ remainder $+$ 48 tokens \\
+    E2 perturbations & same 5 pairs; local window $K = 8$; free-run subset 90 of 345 \\
+    E3 spans & 3 pairs per rollout; min.\ 4 tokens; free-run subset 150 of 207 \\
+    \midrule
+    \multicolumn{2}{l}{\emph{MMLU evaluation}} \\
+    Harness & \texttt{lm-eval}, task \texttt{mmlu} \\
+    Protocol & 5-shot, 5 questions per subtask, batch size 1, max.\ length 2048 \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\textbf{Checkpoint.} The disentangled factors are stored sharded (one
+\texttt{*.factors.pt} file per linear plus a manifest), together with the
+per-step tuning trace (cost, entropy, effective rank per matrix);
+Figure~\ref{fig:tuning} shows the run's cost trajectories for all 96
+matrices. The step count was set by our compute budget, not by convergence:
+longer optimization would likely improve the factors further.
+
+\begin{figure}[t]
+  \centering
+  \inputpgf{figures/disentanglement_loss.pgf}
+  \caption{Disentanglement cost per optimization step for all 96 MLP
+    matrices of the published $\rho{=}0.1$ run (thin lines: individual
+    matrices; thick lines: per-projection medians). \texttt{gate\_proj} and
+    \texttt{up\_proj} compress by more than an order of magnitude, while
+    \texttt{down\_proj} barely improves: the layer heterogeneity of the
+    gauge advantage (Appendix~\ref{app:gauge}) is already visible during
+    optimization. Cost is still decreasing when the run stops at the
+    40-step compute budget, so the gauges are not fully converged.}
+  \label{fig:tuning}
+\end{figure}
+
+\textbf{Implementation.} The Cayley transform expresses the orthogonal gauge
+$Q$ through unconstrained parameters that an ordinary optimizer can update
+freely while keeping $Q$ exactly orthogonal; its backward pass is far cheaper
+than that of the matrix exponential it replaces, whose autograd gradient
+requires a Fr\'echet-derivative computation. Combined with reusing the
+gradient's SVD within each step and 32-bit precision, this yields the
+30--50$\times$ per-layer speed-up reported in Section~\ref{sec:wmd}.
+
+\textbf{Prompting.} Problems are formatted with the model's chat template,
+with the instruction ``Please reason step by step, and put your final answer
+within \texttt{\textbackslash boxed\{\}}.'' appended to the problem
+statement.
+
+\textbf{Seeds and subsampling.} All randomness beyond greedy decoding, i.e.,
+the selection of depth-matched control positions and steps and of free-run
+subsets, uses Python's \texttt{random.Random} with seed 0; free-run subsets
+are drawn uniformly without replacement via \texttt{rng.sample}.
+
+\section{Learning-rate sweep}\label{app:lr}
+
+Disentanglement quality is sensitive to the optimizer learning rate. We swept
+$\{5{\times}10^{-4}$, $10^{-3}$, $5{\times}10^{-3}$, $7{\times}10^{-3}$,
+$10^{-2}$, $2{\times}10^{-2}$, $5{\times}10^{-2}\}$ for 200 steps on a representative
+Qwen3.5-0.8B MLP layer, tracking reconstruction cost (the discarded singular
+energy of \eqref{eq:gauge}, so lower is better) and effective rank (a soft
+count of how many singular directions carry meaningful energy). Small rates
+converge slowly; rates $\geq 10^{-2}$ diverge (reconstruction cost
+increases). A mid-range rate near $10^{-3}$ minimizes cost while reaching a
+stable effective rank (Figure~\ref{fig:lr}). All disentanglement runs in the
+paper use this regime.
+
+\begin{figure*}[t]
+  \centering
+  \inputpgf{figures/lr_sweep.pgf}
+  \caption{Learning-rate sweep for tensor disentanglement (Qwen3.5-0.8B MLP
+    layer, 200 steps). Mid-range rates balance convergence speed and
+    stability; large rates diverge.}
+  \label{fig:lr}
+\end{figure*}
+
+\section{Gauge quality across bake ranks}\label{app:gauge}
+
+Relative to identity-gauge (plain SVD) truncation in the same bipartition,
+the optimized gauge reduces the discarded tail energy to $0.60\times$
+($\rho{=}0.1$) and $0.58\times$ ($\rho{=}0.25$) on
+\texttt{layers.0.down\_proj}, and to $0.026\times$ and $0.025\times$ on
+\texttt{layers.31.up\_proj}. The advantage is large, heterogeneous across
+layers, and essentially independent of the bake rank, supporting the use of
+the $\rho{=}0.1$-optimized gauge for Novices baked at $\rho{=}0.25$
+(Section~\ref{sec:characterization}).
+
+\section{Statistical tests}\label{app:stats}
+
+This appendix explains the tests used in Section~\ref{sec:intervention-results}
+and why each matches its design. The \emph{Wilson} 95\% confidence interval is
+the range of true rates consistent with the observed counts; it is preferred
+over the textbook (Wald) interval because it stays well-behaved for
+proportions near 0 or 1 and for small samples. \emph{McNemar's exact test}
+suits E1's paired design: it looks only at the pairs whose two arms gave
+different outcomes (the discordant pairs) and asks whether one arm wins more
+often than a coin flip would predict. \emph{Fisher's exact test} suits E2 and
+E3, whose free-run arms are independent groups: it operates on the two-by-two
+table of arm versus outcome, summarizes the association as an odds ratio, and
+returns an exact $p$-value that remains valid at small counts. For regression
+coefficients, the standard error (SE) quantifies the estimate's uncertainty,
+and the $t$-value (estimate divided by SE) counts how many standard errors
+the estimate lies from zero.
 
 \end{document}
