@@ -36,8 +36,9 @@
   \endgroup
 }
 
-\title{Increasing Reward Quality and Density for Verifiable Rewards}
-\setshorttitle{Reward Quality and Density}
+\title{Does a Weaker Twin Know Where an LLM's Reasoning Matters?\\
+A Causal Test of Master--Novice Divergence\\for Reward Densification}
+\setshorttitle{Does a Weaker Twin Know Where an LLM's Reasoning Matters?}
 
 \setauthors{
 Ana Carolina Ramos Cunha \quad Leonhard Driesch \quad Leonard Evers
@@ -96,6 +97,7 @@ and discuss what they imply for divergence-based reward densification.
 % Main text
 % --------------------------------------------------
 \begin{multicols}{2}
+\raggedcolumns
 
 % Figure 1: concept overview (drafted standalone in fig1_draft.tex). As a
 % full-width float inside multicols it lands at the top of page 2; the
@@ -338,7 +340,12 @@ the policy. It substantially improves sample efficiency over outcome-only RL on
 math and code. PRIME is the closest point of comparison for our goal
 (token-level credit from outcome supervision only); the difference is that
 PRIME \emph{learns} its dense signal, whereas we test whether a fixed,
-training-free capacity-reduced copy of the policy can supply one.
+training-free capacity-reduced copy of the policy can supply one. Supervised
+process reward models reach the same per-step granularity by training on
+explicit step labels, human-annotated~\citep{lightman2023letsverify} or
+constructed automatically from per-step completion
+success~\citep{wang2023mathshepherd}; a training-free comparator sits at the
+opposite end of this supervision spectrum.
 
 \subsection{Token-importance signals inside the model}
 
@@ -388,9 +395,9 @@ is
 \delta_t = D\bigl(\pi_M(\cdot \mid y_{<t}),\, \pi_N(\cdot \mid y_{<t})\bigr),
 \end{equation}
 where $D$ measures how different the two next-token distributions are, for
-example the Kullback--Leibler (KL) or Jensen--Shannon divergence, both of which
-grow as the distributions move apart; or, in the discrete limit used
-throughout our experiments, $D$ reduces to the \emph{top-1 flip} indicator
+example the Kullback--Leibler (KL) or Jensen--Shannon divergence; or, in the
+discrete limit used throughout our experiments, $D$ reduces to the
+\emph{top-1 flip} indicator
 \begin{equation}
 \mathrm{flip}_t = \mathbb{1}\bigl[\arg\max \pi_N(\cdot \mid y_{<t}) \neq y_t\bigr],
 \end{equation}
@@ -447,11 +454,10 @@ A \equiv M^{-1} \circ P \circ M \colon\;
 \mathbb{R}^{lr \times bc} \to \mathbb{R}^{lc \times rb},
 \end{equation}
 exposing cross-dimensional correlations that the flat matricization hides. A
-learnable orthogonal \emph{gauge} $Q \in O(lr)$ (here $O(lr)$ is the orthogonal
-group, the $lr \times lr$ matrices with $Q^{\top} Q = I$; the word \emph{gauge}
-signals that $Q$ is later undone by $Q^{\top}$ during reconstruction, so it
-re-expresses the layer's coordinates without changing the layer itself) is
-applied to the row space
+learnable orthogonal \emph{gauge} $Q \in O(lr)$ (the orthogonal group; the
+word \emph{gauge} signals that $Q$ is later undone by $Q^{\top}$ during
+reconstruction, re-expressing the layer's coordinates without changing the
+layer itself) is applied to the row space
 before re-bipartitioning, and is optimized to concentrate the spectrum of
 $A(QX)$ in its leading singular directions, i.e., to make a few large singular
 values carry most of the energy. For a target rank $k$, the optimal
@@ -502,8 +508,7 @@ tail, $D_{\mathrm{KL}}\bigl(\pi_M(\cdot \mid s)\,\|\,\pi_N(\cdot \mid s)\bigr)
 \le \tfrac{L}{2} \sum_{i>k} \sigma_i^2\bigl(A(Q^{*}X)\bigr)$ with $L$ a
 network-wide Fisher-information Lipschitz constant, a fixed factor that
 converts discarded weight energy into a bound on how much the output
-distribution can change and so measures the policy's sensitivity to
-perturbing its weights. At the rank the gauge was optimized for, the optimized gauge yields the tightest such
+distribution can change. At the rank the gauge was optimized for, the optimized gauge yields the tightest such
 bound~\citep{till2026introspection}. Two properties of our pipeline determine
 how this applies to the Novices used below. First, baking truncates the
 \emph{stored factors} of $A(Q^{*}X)$ before inverting the reshape, exactly the
@@ -773,7 +778,8 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
 \begin{table}[H]
   \small
   \centering
-  \caption{E2 graded metrics (means over 115 trials per arm). Local disruption
+  \caption{E2 graded metrics (means over 115 trials per arm; the answer-drop
+    column excludes trials perturbed after the answer span). Local disruption
     differs between flip and control positions; the answer-tied drop is
     negligible for every arm. $H_M$: mean Master entropy at the perturbed
     position, confirming that flips sit at high-entropy positions, hence the
@@ -870,15 +876,16 @@ to amplify a corrupted step. Where
 the Novice disagrees with the Master is, causally, not where the outcome is
 decided: flip positions and flip-dense steps are no more outcome-critical than
 depth-matched controls, and the Novice's specific alternatives are no more
-damaging than the Master's own second choices. We conclude that naive
-top-1-flip divergence, used as a per-token or per-step credit weight, would
-not concentrate learning where it matters, and an RL run built on it would
-most likely reproduce a uniform-weighting baseline at extra cost.
+damaging than the Master's own second choices. Naive top-1-flip divergence used as a per-token or
+per-step credit weight would therefore not concentrate learning where it
+matters; an RL run built on it would most likely reproduce a
+uniform-weighting baseline at extra cost.
 
 Two genuine findings survive alongside the negative. First, disagreement
 positions are \emph{locally} special: perturbations there disrupt the
-immediate continuation about 60\% more than at matched positions, beyond what
-Master entropy explains. Divergence therefore does measure something real
+immediate continuation about 60\% more than at matched positions in raw
+terms, and roughly two thirds of that gap ($0.62$ of $+0.94$ nats/token)
+persists at equal Master entropy. Divergence therefore does measure something real
 about where the truncated capacity acts. It just measures local fragility,
 not outcome leverage. Second, the Master is strikingly robust on MATH-500:
 even corrupting an entire reasoning step leaves the final answer intact
@@ -906,8 +913,8 @@ encoded across the trajectory (the Master re-derives it after corruption) or
 concentrated in a few steps that flips do not preferentially mark. TIP's
 setting~\citep{xu2026tip} explains why the same signal can still be valuable in
 distillation: there, ``hard for the weaker model'' \emph{is} the training
-target, with no causal claim being needed. For RL credit assignment, our results show
-that the causal claim must be established separately, and here it fails.
+target, with no causal claim being needed. For RL credit assignment, the causal claim
+must be established separately, and here it fails.
 
 \subsection{Outlook}
 
@@ -928,37 +935,35 @@ kind of causal validation we applied here.
 \section{Limitations}
 
 Our conclusions are bounded by the setting: one Master (Qwen3.5-4B), one
-Novice family (MLP-only disentanglement with the gauge optimized at
-$\rho{=}0.1$, evaluated chiefly at $\rho{=}0.25$, where the truncation
-bound's tightness is verified empirically on sampled layers rather than
-guaranteed), one dataset (MATH-500; 23 Master-correct rollouts), greedy
-decoding, and top-1 flips as the divergence instantiation. The gauge
+Novice family (MLP-only disentanglement, gauge optimized at $\rho{=}0.1$,
+evaluated chiefly at $\rho{=}0.25$), one dataset (MATH-500; 23 Master-correct
+rollouts), greedy decoding, and top-1 flips as the divergence instantiation. The gauge
 optimization was stopped after 40 compute-bounded steps with the cost still
 decreasing (Figure~\ref{fig:tuning}), so a fraction of the observed
 divergence may be avoidable truncation error rather than missing capacity,
 although the optimized gauge already clearly outperforms plain SVD at both
 ranks (Appendix~\ref{app:gauge}). The binary outcome metrics have
-modest power ($\sim$50--115 per arm; the reported CIs are correspondingly
-wide), though the consistency of the null across three designs and both graded
-and binary metrics argues against a large hidden effect. The regression
+modest power ($\sim$50--115 per arm; correspondingly wide CIs), though the
+null's consistency across three designs and both graded and binary metrics
+argues against a large hidden effect. The regression
 standard errors treat positions as independent although they are clustered
 within the 23 rollouts, so the local-fragility $t$-statistic should be read
-as approximate. The MMLU sweep uses a
-fixed 5-question-per-subtask budget, adequate for relative comparisons across
-$\rho$ but not for absolute benchmark claims. The answer-tied drop metric
-teacher-forces intervening reasoning and is thus conservative by design; the
-free-run metrics in E1/E3 are the complementary, unconstrained tests. Finally,
-continuous divergence measures (e.g., Jensen--Shannon mass aggregated per
-trajectory), sampled rather than greedy rollouts, and other Novice
-constructions remain untested and are natural follow-ups.
+as approximate. The MMLU sweep's fixed
+5-question-per-subtask budget supports relative comparisons across $\rho$,
+not absolute benchmark claims. The answer-tied drop metric
+teacher-forces intervening reasoning and is conservative by design; the E1/E3
+free-run metrics are the complementary, unconstrained tests. Finally,
+continuous divergence measures (e.g., per-trajectory Jensen--Shannon mass),
+sampled rather than greedy rollouts, and other Novice constructions remain
+untested and are natural follow-ups.
 
 % --------------------------------------------------
 \section{Conclusion}
 
 We formalized the Master/Novice framework for densifying verifiable rewards,
-built and validated the tensor-disentanglement pipeline that makes it
-practical at 4B scale, and subjected its central premise to a ladder of three
-causal intervention tests on MATH-500. The premise did not hold: top-1
+built the tensor-disentanglement pipeline that makes it practical at 4B
+scale, and subjected its central premise to a ladder of three causal
+intervention tests on MATH-500. The premise did not hold: top-1
 disagreement between Master and Novice does not mark outcome-critical
 positions or steps (McNemar $p{=}1.00$; Fisher $p{=}0.80$), and the Novice's
 specific token choices carry no more leverage than generic perturbations. What
@@ -968,17 +973,15 @@ exact statistics because it de-scopes an otherwise attractive idea: dense
 rewards from a training-free capacity-reduced comparator cannot be assumed to
 target the right tokens, and causal validation of any proposed credit signal
 should precede RL integration. The released pipeline, the coherence-cliff
-characterization, and the three reusable intervention designs are intended to
-make exactly that validation cheap for future signals.
+characterization, and the three reusable intervention designs make exactly
+that validation cheap for future signals.
 
 \section*{AI-Use Statement}
 
-AI assistants were used for limited drafting and coding assistance during this
-project. Boilerplate and auxiliary code (e.g., plotting, evaluation harness
-glue) may have been generated with an LLM, and LLM tools were used to assist
-with editing and restructuring the manuscript. All content was reviewed,
-modified, and verified by the authors, who take full responsibility for the
-final work.
+AI assistants were used for limited drafting and coding assistance:
+boilerplate code may have been LLM-generated, and LLM tools assisted with
+editing the manuscript. All content was reviewed, modified, and
+verified by the authors, who take full responsibility for the final work.
 
 % --------------------------------------------------
 % Bibliography
