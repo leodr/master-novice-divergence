@@ -79,6 +79,13 @@ E1_SUCCESS_FLIP = 30 / 115
 E1_SUCCESS_CONTROL = 31 / 115
 E1_PAIRS = 115
 
+# E2 per-arm means as reported in the paper (Table 2) and
+# DISAGREEMENT_CREDIT_FINDINGS.md; the run's per-trial records were not kept.
+# Order: flip_novice, flip_rank2, control_rank2.
+E2_ARMS = ["flip, Novice token", "flip, rank-2", "control, rank-2"]
+E2_LOCAL_DISRUPTION = [2.56, 2.55, 1.60]
+E2_ANSWER_DROP = [0.0009, 0.0009, 0.0013]
+
 # Per-depth-bin success rates digitized from experiments/e1_release_depth.png.
 # The run's leverage_summary.json was not kept, so these are accurate to about
 # +/-0.01 rather than exact. Pass --leverage-summary to use real counts.
@@ -203,6 +210,45 @@ def figure_e1_release_depth(out_path: str, summary_path: str | None) -> None:
     plt.close(fig)
 
 
+def figure_e2_dissociation(out_path: str) -> None:
+    # Single-column figure: both graded E2 metrics on ONE shared scale, so the
+    # ~1000x collapse from local disruption to answer-tied drop is the visual
+    # message; the answer bars are invisible by design and carry printed values.
+    fig, ax = plt.subplots(figsize=(3.05, 1.7))
+
+    colors = [FLIP_COLOR, FLIP_COLOR, CONTROL_COLOR]
+    hatches = ["///", None, None]
+    width, offsets = 0.24, [-0.26, 0.0, 0.26]
+
+    for arm, color, hatch, off, local, answer in zip(
+        E2_ARMS, colors, hatches, offsets, E2_LOCAL_DISRUPTION, E2_ANSWER_DROP
+    ):
+        ax.bar(
+            [0 + off, 1 + off], [local, answer], width=width,
+            color=color, hatch=hatch, edgecolor="white", linewidth=0.5,
+            label=arm,
+        )
+        ax.text(0 + off, local + 0.06, f"{local:.2f}",
+                ha="center", va="bottom", fontsize=6.5)
+        ax.text(1 + off, answer + 0.06, f"{answer:.4f}",
+                ha="center", va="bottom", fontsize=6.5, rotation=90)
+
+    ax.set_xticks([0, 1])
+    ax.set_xticklabels(["local disruption\n(next 8 tokens)",
+                        "answer-tied drop\n(teacher-forced)"])
+    ax.set_ylabel("Drop (nats/token)")
+    ax.set_ylim(0, 3.1)
+    ax.legend(loc="upper right", framealpha=0.9)
+
+    ax.grid(True, axis="y", alpha=0.25)
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.set_axisbelow(True)
+
+    fig.tight_layout(pad=0.4)
+    fig.savefig(out_path)
+    plt.close(fig)
+
+
 def figure_mmlu_rank_sweep(out_path: str) -> None:
     with open(MMLU_CSV, newline="") as fh:
         rows = sorted(
@@ -306,6 +352,10 @@ def main() -> None:
     tuning_path = os.path.join(args.out, "disentanglement_loss.pgf")
     figure_disentanglement_loss(tuning_path)
     print(f"wrote {tuning_path}")
+
+    e2_path = os.path.join(args.out, "e2_dissociation.pgf")
+    figure_e2_dissociation(e2_path)
+    print(f"wrote {e2_path}")
 
     e1_path = os.path.join(args.out, "e1_release_depth.pgf")
     figure_e1_release_depth(e1_path, args.leverage_summary)

@@ -1,0 +1,163 @@
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[
+  x=1cm, y=1cm,
+  font=\scriptsize,
+  panel/.style={rounded corners=3pt, draw=black!15, fill=black!2},
+  num/.style={circle, fill=masterblue, text=white, font=\scriptsize\bfseries,
+              inner sep=1.6pt, minimum size=0.4cm},
+  ptitle/.style={font=\small\bfseries, anchor=west, text=black},
+  modelbox/.style={rounded corners=2pt, minimum width=2.5cm, minimum height=0.95cm,
+                   align=center, text=white, font=\footnotesize\bfseries},
+  tok/.style={rounded corners=1pt, minimum width=0.27cm, minimum height=0.32cm,
+              inner sep=0pt, draw=masterblue!35, fill=masterblue!12},
+  flip/.style={tok, draw=noviceorange!80!black, fill=noviceorange},
+  ctrl/.style={tok, draw=ctrlgray!90!black, thick, fill=black!8},
+  lab/.style={text=inksec, align=left},
+  arr/.style={-{Stealth[length=2.2mm]}, thick, black!60},
+  bolt/.style={badred, line width=0.9pt, -{Stealth[length=1.6mm]}},
+]
+
+% chevrons between panels (reading order 1→2, 3→4)
+\node[text=black!30, font=\Large] at (8.15, 6.7)  {$\blacktriangleright$};
+\node[text=black!30, font=\Large] at (8.15, 2.15) {$\blacktriangleright$};
+
+% ================= Panel 1 (top left): Make a weaker copy =================
+\draw[panel] (0,4.55) rectangle (8.0,8.85);
+\node[num] at (0.5,8.4) {1};
+\node[ptitle] at (0.8,8.4) {Make a weaker copy};
+
+\node[modelbox, fill=masterblue] (master) at (1.8,7.0)
+  {Master\\[-1pt]{\tiny\mdseries Qwen3.5-4B}};
+
+\node[modelbox, fill=noviceorange] (novice) at (6.2,7.0)
+  {Novice\\[-1pt]{\tiny\mdseries same model, weakened}};
+
+\draw[arr] (master.east) -- (novice.west);
+
+% singular-spectrum glyph below the arrow, centered in the gap between the boxes
+\begin{scope}[shift={($(master.east)!0.5!(novice.west)+(-0.72,-0.75)$)}]
+  \foreach [count=\i from 0] \h in {0.60,0.46,0.34,0.25,0.18,0.13,0.09,0.06}{
+    \pgfmathsetmacro{\xx}{\i*0.18}
+    \ifnum \i<2
+      \fill[noviceorange] (\xx,0) rectangle ++(0.13,\h);
+    \else
+      \fill[black!15] (\xx,0) rectangle ++(0.13,\h);
+    \fi
+  }
+  \draw[black!40, line width=0.4pt] (-0.04,0) -- (1.43,0);
+  \draw[dashed, inksec] (0.31,-0.06) -- (0.31,0.7);
+\end{scope}
+
+\node[lab, anchor=north, align=center] at (4.0,6.0)
+  {compress its MLP weights:\\keep 25\,\% of the rank\\[3pt]
+   {\tiny the amount of weakening is adjustable (the kept rank fraction $\rho$)}};
+
+% ================= Panel 2 (top right): See where it disagrees =================
+\draw[panel] (8.3,4.55) rectangle (16.3,8.85);
+\node[num] at (8.8,8.4) {2};
+\node[ptitle] at (9.1,8.4) {See where it disagrees};
+
+\node[lab, anchor=north west, text width=7.6cm] at (8.55,8.0)
+  {The Master solves a math problem; the Novice re-predicts every token.};
+
+% token strip
+\begin{scope}[shift={(8.85,6.3)}]
+  \foreach [count=\i from 0] \s in
+    {tok,tok,tok,tok,tok,flip,tok,tok,tok,tok,tok,flip,tok,tok,tok,tok}{
+    \node[\s] (t\i) at (\i*0.34,0) {};
+  }
+  \node[rounded corners=1pt, minimum height=0.32cm, inner sep=2.5pt,
+        draw=okgreen, fill=okgreen!10, font=\scriptsize, text=okgreen!70!black]
+        (ans) at (15*0.34+0.75,0) {\,$42$ \checkmark\,};
+  % flips label above, pointing down
+  \node[font=\scriptsize, text=noviceorange!85!black, anchor=south west]
+        (flab) at (0.3,0.6)
+        {flips: the Novice would have picked a different token};
+  \draw[noviceorange!85!black, line width=0.5pt] (1.5,0.55) to[out=-90,in=95] (t5.north);
+  \draw[noviceorange!85!black, line width=0.5pt] (3.4,0.55) to[out=-70,in=95] (t11.north);
+\end{scope}
+
+\node[lab, font=\tiny, anchor=north, align=center] at (11.5,6.0)
+  {(about 1 in 8 tokens is a flip)};
+
+\node[rounded corners=2pt, draw=black!25, fill=white, inner sep=5pt,
+      text width=6.6cm, align=center, font=\scriptsize\itshape] at (12.3,5.08)
+  {Hypothesis: these are the steps that decide whether the answer comes
+   out right.};
+
+% ================= Panel 3 (bottom left): Damage the solution =================
+\draw[panel] (0,0) rectangle (8.0,4.3);
+\node[num] at (0.5,3.85) {3};
+\node[ptitle] at (0.8,3.85) {Damage the solution};
+
+% strip with two damage bolts
+\begin{scope}[shift={(0.6,2.5)}]
+  \foreach [count=\i from 0] \s in
+    {tok,tok,tok,tok,flip,tok,tok,tok,ctrl,tok,tok,tok}{
+    \node[\s] (d\i) at (\i*0.34,0) {};
+  }
+  % lightning bolts onto the flip and the control token
+  \draw[bolt] (1.46,0.80) -- (1.34,0.52) -- (1.46,0.47) -- (1.34,0.20);
+  \draw[bolt] (2.82,0.80) -- (2.70,0.52) -- (2.82,0.47) -- (2.70,0.20);
+  % labels under the strip
+  \node[font=\scriptsize, text=noviceorange!85!black, anchor=north, align=center]
+    at (1.15,-0.3) {at a flip};
+  \node[font=\scriptsize, text=inksec, anchor=north, align=center]
+    at (3.1,-0.3) {or at a normal spot,\\equally far in};
+\end{scope}
+
+\draw[arr] (4.72,2.5) -- (5.44,2.5);
+\node[lab, font=\tiny, anchor=south, align=center] at (5.08,2.68) {Master\\finishes};
+
+\node[rounded corners=2pt, draw=black!25, fill=white, inner sep=5pt,
+      text width=1.7cm, align=center, font=\scriptsize] at (6.65,2.5)
+  {Is the final answer still correct?};
+
+\node[lab, font=\tiny, anchor=north, align=center, text width=7.4cm] at (4.0,1.1)
+  {Three kinds of damage, from mild to severe: change one token \,$\cdot$\,
+   corrupt a whole reasoning step \,$\cdot$\, let the Novice write the rest
+   (experiments E1--E3).};
+
+% ================= Panel 4 (bottom right): Result =================
+\draw[panel] (8.3,0) rectangle (16.3,4.3);
+\node[num] at (8.8,3.85) {4};
+\node[ptitle] at (9.1,3.85) {Result: no difference};
+
+\node[lab, font=\scriptsize\bfseries, anchor=west] at (8.7,3.25)
+  {how often the answer broke:};
+
+\begin{scope}[shift={(9.0,0.95)}]
+  % bars: E3 break rates .151 vs .176, scale x9
+  \draw[black!40, line width=0.4pt] (-0.25,0) -- (2.5,0);
+  \fill[noviceorange] (0,0)   rectangle ++(0.55,{0.151*9});
+  \fill[ctrlgray]     (1.75,0) rectangle ++(0.55,{0.176*9});
+  \node[font=\scriptsize, anchor=south] at (0.275,{0.151*9}) {15\,\%};
+  \node[font=\scriptsize, anchor=south] at (2.025,{0.176*9}) {18\,\%};
+  \node[font=\Large, text=inksec] at (1.15,0.7) {$\approx$};
+  \node[font=\tiny, text=inksec, anchor=north, align=center] at (0.275,-0.08)
+    {damage\\at flips};
+  \node[font=\tiny, text=inksec, anchor=north, align=center] at (2.025,-0.08)
+    {damage at\\normal spots};
+\end{scope}
+
+\node[lab, anchor=north west, text width=3.9cm] at (12.2,2.9)
+  {\textcolor{badred}{$\boldsymbol\times$}\; flips do \textbf{not} mark the
+   decisive steps --- the outcome is the same in all three experiments};
+
+\node[lab, anchor=north west, text width=3.9cm] at (12.2,1.55)
+  {\textcolor{okgreen}{\checkmark}\; the one real effect is local: the few
+   words right after a flip are disturbed more};
+
+\end{tikzpicture}
+\caption{What we did and what we found: \textbf{(1)}~compress a strong model's
+(\emph{Master's}) MLP weights into a weakened copy, the \emph{Novice};
+\textbf{(2)}~let the Novice re-predict the Master's correct MATH-500
+solutions and mark the disagreements (\emph{flips}); \textbf{(3)}~damage
+solutions at flips versus at depth-matched normal positions and let the
+Master finish. \textbf{(4)}~\emph{Takeaway:} the answer breaks equally often
+either way (shown: whole-step damage; all three experiments agree), so flips
+mark where the Novice's missing capacity acts --- not where the outcome is
+decided --- and this divergence signal cannot densify the reward.}
+\label{fig:overview}
+\end{figure*}
