@@ -513,26 +513,15 @@ are processed in parallel and their factors streamed to disk. These
 optimizations are what made it feasible to construct the Novice at the 4B
 scale used in our experiments.
 
-WMD also supplies the theoretical link between Novice construction and the
-divergence signal of Section~\ref{sec:hypothesis}: for a policy and its rank-$k$ truncated
-counterpart, the per-state KL divergence is bounded by the discarded singular
-tail, $D_{\mathrm{KL}}\bigl(\pi_M(\cdot \mid s)\,\|\,\pi_N(\cdot \mid s)\bigr)
-\le \tfrac{L}{2} \sum_{i>k} \sigma_i^2\bigl(A(Q^{*}X)\bigr)$ with $L$ a
-network-wide Fisher-information Lipschitz constant, a fixed factor that
-converts discarded weight energy into a bound on how much the output
-distribution can change. At the rank the gauge was optimized for, the optimized gauge yields the tightest such
-bound~\citep{till2026introspection}. Two properties of our pipeline determine
-how this applies to the Novices used below. First, baking truncates the
-\emph{stored factors} of $A(Q^{*}X)$ before inverting the reshape, exactly the
-construction in \eqref{eq:bake}, so the bound itself holds at every bake rank
-$\rho$, with the tail read directly off the stored spectrum. Second, because
-\eqref{eq:gauge} depends on $k$, the \emph{tightness} guarantee is
-rank-specific: a Novice baked at a different $\rho$ than the gauge was
-optimized for inherits a valid but not provably minimal bound. We verify
-empirically that the gauge's advantage transfers across ranks in our
-checkpoint (Section~\ref{sec:characterization}). WMD rather than plain SVD
+WMD also supplies a theoretical link to the divergence signal of
+Section~\ref{sec:hypothesis}: the per-state KL divergence between a policy
+and its truncated counterpart is bounded by the discarded singular tail, and
+at the rank the gauge was optimized for, the optimized gauge yields the
+tightest such bound~\citep{till2026introspection}. WMD rather than plain SVD
 thus keeps the observed Master/Novice divergence dominated by genuinely
-missing capacity rather than by avoidable truncation error.
+missing capacity rather than by avoidable truncation error. How the bound
+applies at our bake rank, and the empirical check that the gauge's advantage
+transfers across ranks, are given in Appendix~\ref{app:gauge}.
 
 \subsection{The \texttt{NoviceModel} pipeline}
 
@@ -560,15 +549,8 @@ $\rho$ by cheap re-truncation.}
 \label{fig:pipeline}
 \end{figure}
 
-Concretely, for Qwen3.5-4B's
-\texttt{down\_proj} (one of the three MLP projection matrices in each decoder
-layer, here $X \in \mathbb{R}^{2560 \times 9216}$) the factorization is
-$(l,r,b,c) = (40,64,96,96)$, so that $40 \times 64 = 2560$ and
-$96 \times 96 = 9216$ recover the matrix dimensions; then $Q \in O(2560)$,
-$A(QX) \in \mathbb{R}^{3840 \times 6144}$, and $m = 3840$; baking at
-$\rho{=}0.25$ keeps $k{=}960$ singular directions; the stored factors are the
-gauge together with the singular vectors and values $U$, $s$, $V_h$ of
-$A(Q^{*}X)$. Sharded checkpoints are loaded and baked one layer at a time,
+A worked example of the factorization for one layer is given in
+Appendix~\ref{app:repro}. Sharded checkpoints are loaded and baked one layer at a time,
 keeping peak memory near a single model. An equality test confirms that a Novice baked at
 $\rho{=}1$ reproduces the base model's logits.
 The pipeline was validated incrementally on toy weight matrices, MNIST- and
@@ -691,23 +673,18 @@ Three metrics are recorded per trial:
 \begin{itemize}\setlength\itemsep{1pt}
   \item \emph{Local disruption}: the mean drop in the log-probability the
         Master assigns to its own next $K{=}8$ tokens when the perturbed
-        prefix replaces the clean one, in nats per token (a nat is the
-        natural-logarithm unit of information, so a drop of one nat means
-        the Master finds its own continuation a factor of $e$ less likely);
-        $K{=}8$ is long enough to capture the immediate continuation while
-        keeping the metric local.
-  \item \emph{Answer log-probability drop}: the same drop evaluated on the
-        Master's answer tokens (the \texttt{\textbackslash boxed\{\}}
-        content), with the reasoning between the perturbation and the
-        answer teacher-forced, i.e., held fixed; this isolates the part of
-        the perturbation's effect that reaches the outcome. Trials whose
-        perturbed position lies after the answer span have no answer tokens
-        left to score and are excluded from this metric.
-  \item \emph{Answer-break}: a binary outcome, whether the Master,
-        free-running greedily from the perturbed prefix, no longer reaches
-        the correct answer; since each free run is a full generation, this
-        is evaluated on a random subset of 90 of the 345 trials to bound
-        compute.
+        prefix replaces the clean one, in nats per token (nats defined in
+        Appendix~\ref{app:stats}); the short window keeps the metric local
+        while averaging out single-token noise.
+  \item \emph{Answer log-probability drop}: the same drop on the Master's
+        answer tokens (the \texttt{\textbackslash boxed\{\}} content), with
+        the reasoning in between teacher-forced, i.e., held fixed, so only
+        the effect that reaches the outcome is measured; trials perturbed
+        after the answer span are excluded (no answer tokens remain).
+  \item \emph{Answer-break}: whether the Master, free-running greedily from
+        the perturbed prefix, no longer reaches the correct answer; each
+        free run is a full generation, so this is evaluated on a random
+        90-of-345 subset to bound compute.
 \end{itemize}
 
 Because flips concentrate at positions where the Master itself is uncertain,
@@ -775,7 +752,7 @@ shows, we observe none of these.
 \textbf{Gauge quality across bake ranks.} The checkpoint's gauge was optimized
 at $\rho{=}0.1$ while the interventions bake at $\rho{=}0.25$, so the KL
 bound's tightness is not guaranteed at the bake rank
-(Section~\ref{sec:wmd}). Measured on the stored spectra, the advantage
+(Appendix~\ref{app:gauge}). Measured on the stored spectra, the advantage
 transfers: the optimized gauge's reduction of discarded tail energy relative
 to identity-gauge (plain SVD) truncation is large, if heterogeneous across
 layers, and essentially rank-independent between $\rho{=}0.1$ and
@@ -977,15 +954,12 @@ even corrupting an entire reasoning step leaves the final answer intact
 84\% of the time. Only a small minority of steps is load-bearing, and
 identifying them evidently requires more than capacity-difference signals.
 
-On the relation to entropy: our data do \emph{not} show that entropy is a
-sufficient credit signal either. Entropy predicted local disruption, but
-neither entropy nor flips predicted the outcome-tied metrics: on those,
-everything was null. The correct summary is that flips and entropy are
-correlated, each carries independent \emph{local} information, and neither, in
-our setting, identifies outcome-critical positions. This is consistent with
-the interpretation of high-entropy tokens as \emph{forks} whose importance is
-realized over many rollouts during training~\citep{wang2025forking}, rather
-than as counterfactually decisive positions within a single trajectory.
+On entropy: our data do \emph{not} show that entropy is a sufficient credit
+signal either. Flips and entropy are correlated, each carries independent
+\emph{local} information, and neither, in our setting, identifies
+outcome-critical positions; this is consistent with reading high-entropy
+tokens as forks whose importance emerges over many training
+rollouts~\citep{wang2025forking} rather than within a single trajectory.
 
 \subsection{Why the hypothesis may fail}
 
@@ -1036,20 +1010,18 @@ Novice family (MLP-only disentanglement, gauge optimized at $\rho{=}0.1$,
 evaluated chiefly at $\rho{=}0.25$), one dataset (MATH-500; 23 Master-correct
 rollouts), greedy decoding, and top-1 flips as the divergence instantiation.
 Conditioning on Master-correct rollouts matches the intended use of a
-shaping signal, which applies to verified-correct rollouts, but it skews the
-evaluated set easy: 20 of the 23 solved problems are MATH difficulty levels
-1--3. Harder problems with longer chains of dependent steps might place more
-weight on individual steps, and the Master's 84\% recovery rate after step
-corruption may partly reflect this easier regime; our conclusions are scoped
-to problems the Master solves. The gauge
+shaping signal but skews the evaluated set easy (20 of 23 solved problems
+are MATH levels 1--3); harder problems with longer chains of dependent steps
+might weight individual steps more, the 84\% recovery rate may partly
+reflect this easier regime, and our conclusions are scoped to problems the
+Master solves. The gauge
 optimization was stopped after 40 compute-bounded steps with the cost still
 decreasing (Figure~\ref{fig:tuning}), so a fraction of the observed
 divergence may be avoidable truncation error rather than missing capacity,
 although the optimized gauge already clearly outperforms plain SVD at both
 ranks (Appendix~\ref{app:gauge}). The binary outcome metrics have
-modest power, so their nulls rule out only large effects. At 80\% power (the
-conventional benchmark: an effect of the stated size, if real, would be
-detected in 80\% of repeated experiments), E1's 115 pairs could detect a
+modest power, so their nulls rule out only large effects. At 80\% power
+(defined in Appendix~\ref{app:stats}), E1's 115 pairs could detect a
 flip--control success asymmetry of about 11 percentage points, E3's 53
 vs.\ 51 free runs a rise in the step break rate from 0.18 to about 0.43, and
 E2's 30-trial free-run arms only larger effects still (assumptions in
@@ -1190,6 +1162,16 @@ requires a Fr\'echet-derivative computation. Combined with reusing the
 gradient's SVD within each step and 32-bit precision, this yields the
 30--50$\times$ per-layer speed-up reported in Section~\ref{sec:wmd}.
 
+\textbf{Worked example.} For Qwen3.5-4B's \texttt{down\_proj} (one of the
+three MLP projection matrices in each decoder layer,
+$X \in \mathbb{R}^{2560 \times 9216}$) the factorization is
+$(l,r,b,c) = (40,64,96,96)$, so that $40 \times 64 = 2560$ and
+$96 \times 96 = 9216$ recover the matrix dimensions; then $Q \in O(2560)$,
+$A(QX) \in \mathbb{R}^{3840 \times 6144}$, and $m = 3840$. Baking at
+$\rho{=}0.25$ keeps $k{=}960$ singular directions; the stored factors are
+the gauge together with the singular vectors and values $U$, $s$, $V_h$ of
+$A(Q^{*}X)$.
+
 \textbf{Prompting.} Problems are formatted with the model's chat template,
 with the instruction ``Please reason step by step, and put your final answer
 within \texttt{\textbackslash boxed\{\}}.'' appended to the problem
@@ -1222,9 +1204,28 @@ paper use this regime.
   \label{fig:lr}
 \end{figure*}
 
-\section{Gauge quality across bake ranks}\label{app:gauge}
+\section{The KL bound and gauge quality across bake ranks}\label{app:gauge}
 
-Relative to identity-gauge (plain SVD) truncation in the same bipartition,
+For a policy and its rank-$k$ truncated counterpart, the per-state KL
+divergence is bounded by the discarded singular tail,
+$D_{\mathrm{KL}}\bigl(\pi_M(\cdot \mid s)\,\|\,\pi_N(\cdot \mid s)\bigr)
+\le \tfrac{L}{2} \sum_{i>k} \sigma_i^2\bigl(A(Q^{*}X)\bigr)$, with $L$ a
+network-wide Fisher-information Lipschitz constant, a fixed factor that
+converts discarded weight energy into a bound on how much the output
+distribution can change; at the rank the gauge was optimized for, the
+optimized gauge yields the tightest such
+bound~\citep{till2026introspection}. Two properties of our pipeline
+determine how this applies to the Novices used in the experiments. First,
+baking truncates the \emph{stored factors} of $A(Q^{*}X)$ before inverting
+the reshape, exactly the construction in \eqref{eq:bake}, so the bound
+itself holds at every bake rank $\rho$, with the tail read directly off the
+stored spectrum. Second, because \eqref{eq:gauge} depends on $k$, the
+\emph{tightness} guarantee is rank-specific: a Novice baked at a different
+$\rho$ than the gauge was optimized for inherits a valid but not provably
+minimal bound.
+
+Empirically, the gauge's advantage transfers across ranks. Relative to
+identity-gauge (plain SVD) truncation in the same bipartition,
 the optimized gauge reduces the discarded tail energy to $0.60\times$
 ($\rho{=}0.1$) and $0.58\times$ ($\rho{=}0.25$) on
 \texttt{layers.0.down\_proj}, and to $0.026\times$ and $0.025\times$ on
@@ -1235,8 +1236,10 @@ the $\rho{=}0.1$-optimized gauge for Novices baked at $\rho{=}0.25$
 
 \section{Statistical tests}\label{app:stats}
 
-This appendix explains the tests used in Section~\ref{sec:intervention-results}
-and why each matches its design. The \emph{Wilson} 95\% confidence interval is
+This appendix explains the units and tests used in
+Section~\ref{sec:intervention-results} and why each test matches its design.
+A \emph{nat} is the natural-logarithm unit of log-probability: a drop of one
+nat makes a continuation a factor of $e$ less likely. The \emph{Wilson} 95\% confidence interval is
 the range of true rates consistent with the observed counts; it is preferred
 over the textbook (Wald) interval because it stays well-behaved for
 proportions near 0 or 1 and for small samples. \emph{McNemar's exact test}
