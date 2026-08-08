@@ -269,21 +269,25 @@ decided, and the top-1 flip signal cannot densify the reward.}
 % --------------------------------------------------
 \section{Introduction}
 
-Large language models (LLMs) trained with reinforcement learning often receive
+Large language models (LLMs) trained with reinforcement learning (RL) often receive
 only a sparse, verifiable reward at trajectory end (correct or
 incorrect) while intermediate tokens receive no direct feedback. This
-\emph{reward sparsity} impedes sample efficiency and credit assignment: the
-policy cannot tell which reasoning steps were load-bearing and which were
+\emph{reward sparsity} impedes sample efficiency and \emph{credit
+assignment}, the problem of deciding which of a trajectory's many actions
+deserve credit for its single terminal reward: the policy cannot tell which
+reasoning steps were load-bearing and which were
 routine~\citep{cui2025prime}.
 
 Recent work densifies rewards without human step labels by exploiting structure
 already present in the task or the model: partial test-case success in code,
-worth up to $+8.83$ pass@1 over outcome-only training~\citep{wang2026verpo};
+worth up to $+8.83$ pass@1 (share of problems solved at the first attempt)
+over outcome-only training~\citep{wang2026verpo};
 implicit process rewards trained from outcome labels alone, with a reported
 $2.5\times$ sample-efficiency gain~\citep{cui2025prime}; teacher--student
 divergence in distillation~\citep{xu2026tip}; and the observation that a
 minority of high-entropy ``forking'' tokens concentrates most of the
-learning signal in RLVR~\citep{wang2025forking}. These gains quantify what
+learning signal in RL with verifiable rewards
+(RLVR)~\citep{wang2025forking}. These gains quantify what
 sparsity costs and what a well-chosen dense signal can recover.
 
 This paper explores a complementary idea: construct a weaker \emph{Novice} from
@@ -337,8 +341,9 @@ signal (the raw test-suite pass rate) can \emph{underperform} sparse outcome
 rewards, because redundant easy tests dominate the reward by sheer count (a
 \emph{cardinality bias}). VeRPO corrects this with a dynamically calibrated
 per-test weighting and re-anchors the result to the end-to-end outcome,
-outperforming outcome-only GRPO and RM-based baselines without a learned
-reward model. We selected it both as the clearest instance of extracting
+outperforming both outcome-only GRPO (a widely used policy-optimization
+algorithm for LLM RL) and baselines built on learned reward models (RMs),
+itself without any learned reward model. We selected it both as the clearest instance of extracting
 density from the \emph{verifier} side and for its lesson that denser is not
 automatically better. This same lesson motivates our interventional
 validation of the divergence signal before any training. This approach as a whole differs from ours in
@@ -393,12 +398,13 @@ signal it produces must be validated through interventions rather than assumed.
 
 \subsection{Setup and hypothesis}\label{sec:hypothesis}
 
-We treat autoregressive generation as a Markov decision process: state $s_t$ is
+We treat autoregressive generation as a Markov decision process, the standard
+sequential-decision formalism of RL: state $s_t$ is
 the prompt plus generated prefix $y_{<t}$, action $a_t$ is the next token, and
 the reward is binary verifiable correctness at episode end. The
 \textbf{Master} is the full-capacity policy $\pi_M$. The \textbf{Novice} is
 $\pi_N$, derived from the same checkpoint by truncating disentangled MLP
-factors to a rank fraction $\rho \in (0,1]$, the share of each layer's internal
+(multi-layer perceptron) factors to a rank fraction $\rho \in (0,1]$, the share of each layer's internal
 rank that is kept (defined precisely in Section~\ref{sec:wmd}); $\rho{=}1$
 reproduces the Master and smaller $\rho$ yields a weaker Novice. On a Master
 rollout
@@ -437,7 +443,8 @@ experiment would be uninformative.
 The Novice must be \emph{policy-preserving}: it should retain as much of the
 Master's behavior as a given rank budget permits, so that its remaining
 disagreements are attributable to missing capacity rather than to a lossy
-construction. The classical route, truncated SVD of each weight matrix, treats the matrix as a flat 2D
+construction. The classical route, a truncated singular value decomposition
+(SVD) of each weight matrix, treats the matrix as a flat 2D
 array and ignores the multi-dimensional structure of neural weights. We
 instead use \emph{Weight Matrix Disentanglement}
 (WMD)~\citep{till2026introspection}, following the Master/Novice framework of
@@ -582,8 +589,9 @@ Section~\ref{sec:characterization}.
 prompted via the chat template with the standard instruction to place the
 final answer in \texttt{\textbackslash boxed\{\}}; the box gives the grader
 and the interventions below a machine-checkable answer location. All decoding
-is greedy, which makes every experiment deterministic up to the fixed
-sampling seed used for control selection. Master rollouts are capped at 512
+is greedy, hence deterministic. The only randomness in the pipeline is the
+fixed seed that selects control positions and free-run subsets, so every
+experiment is exactly reproducible. Master rollouts are capped at 512
 new tokens in E1 and 700 in E2/E3 (the shared prefixes are identical, and
 the same 23 problems are solved), which suffices for most rollouts to
 terminate naturally.
@@ -592,6 +600,8 @@ terminate naturally.
 with LaTeX-normalizing equality (fraction, spacing, and delimiter
 normalization; numeric fallback). The Master solved 23/50 problems; all
 credit-assignment experiments operate on these 23 verified-correct rollouts.
+The solved problems skew easy: 20 of 23 are MATH difficulty levels 1--3
+(mean level 2.5, versus 3.9 for the unsolved problems).
 Across them, the Novice is teacher-forced on the Master's tokens and flips are
 recorded at every generated position (10{,}895 scored tokens; flip rate
 12.3\%). The disentangled factor checkpoint is publicly available, and
@@ -607,7 +617,9 @@ selects $10^{-3}$, used for all subsequent disentanglement runs
 (Appendix~\ref{app:lr}).
 
 \textbf{MMLU rank sweep.} Novice quality as a function of $\rho$ is measured
-with \texttt{lm-eval} on MMLU, 5-shot, limited to 5 questions per subtask
+with \texttt{lm-eval} on the MMLU benchmark (Massive Multitask Language
+Understanding, a standard multiple-choice knowledge test), 5-shot, limited to
+5 questions per subtask
 (a fixed-budget subset; the same protocol at every rank, so relative
 comparisons are unaffected by the limit).
 
@@ -632,14 +644,19 @@ it receives the Master's prefix $y_{<p}$ and free-runs greedily to completion
 (budget: remaining rollout length plus 48 tokens); the completed trajectory is
 graded. This mirrors the deployment (``Actor'') pattern of the WMD
 framework~\citep{till2026introspection}, in which the truncated policy drives
-the rollout. Release positions are selected as follows. Within each rollout,
+the rollout.
+
+Release positions are selected as follows. Within each rollout,
 all flips are ranked by their \emph{confidence gap}: the probability the
 Novice assigns to its own preferred token minus the probability it assigns to
 the Master's token at that position. A near-zero gap means a borderline
 disagreement, a large gap a confident one. We release at the 5 most confident
 flips per rollout, since these are the flips most likely to matter if H1 is
 true; selecting them biases the test toward finding an effect, which makes a
-null result more conclusive. Each selected flip is then paired with the
+null result more conclusive. Although the selection is relative to each
+rollout, the selected flips are confident in absolute terms: all 115 have a
+confidence gap of at least 0.5 (median 0.93, versus a median of 0.44 over
+all flips). Each selected flip is then paired with the
 not-yet-used non-flip position closest to it in depth, and every control is
 used at most once. With 23 rollouts and 5 pairs each, this yields
 $23 \times 5 = 115$ pairs, i.e., 230 Novice free runs; five pairs per rollout
@@ -651,12 +668,18 @@ handoff, a whole weak model free-runs in both arms, so the effect of the
 single position is diluted by the long shared continuation. E2 instead
 perturbs exactly one token and lets the \emph{Master} continue. It reuses the
 same 5 flip/control pairs per rollout as E1, and each of the 115 pairs
-produces three trials, one per \emph{arm} (experimental condition):
-\texttt{flip\_novice} splices the
-Novice's token at the flip position, \texttt{flip\_rank2} splices the
-Master's own second most probable token at the same flip position, and
-\texttt{control\_rank2} splices the second most probable token at the matched
-control position. The second-choice token is used because it exists at every
+produces three trials, one per \emph{arm}. An arm is a group of trials that
+all receive the same intervention; here, each arm splices one kind of token
+at one kind of position, and outcomes are compared between arms:
+\begin{itemize}\setlength\itemsep{1pt}
+  \item \texttt{flip\_novice} splices the Novice's token at the flip
+        position;
+  \item \texttt{flip\_rank2} splices the Master's own second most probable
+        token at the same flip position;
+  \item \texttt{control\_rank2} splices the second most probable token at
+        the matched control position.
+\end{itemize}
+The second-choice token is used because it exists at every
 position and is a perturbation of comparable strength in both groups.
 Comparing the two \texttt{rank2} arms therefore isolates the \emph{position}
 effect under an identical perturbation type, while comparing the two flip
@@ -664,27 +687,34 @@ arms isolates the effect of the Novice's \emph{specific} token at an
 identical (hence entropy-matched) position. In total this gives
 $23 \times 5 \times 3 = 345$ trials, 115 per arm.
 
-Three metrics are recorded per trial. (i)~\emph{Local disruption}: the mean
-drop in the log-probability the Master assigns to its own next $K{=}8$ tokens
-when the perturbed prefix replaces the clean one, in nats per token (a nat is
-the natural-logarithm unit of information, so a drop of one nat means the
-Master finds its own continuation a factor of $e$ less likely); $K{=}8$ is
-long enough to capture the immediate continuation while keeping the metric
-local. (ii)~\emph{Answer log-probability drop}: the same drop evaluated on
-the Master's answer tokens (the \texttt{\textbackslash boxed\{\}} content),
-with the reasoning between the perturbation and the answer teacher-forced,
-i.e., held fixed; this isolates the part of the perturbation's effect that
-reaches the outcome. Trials whose perturbed position lies after the answer
-span have no answer tokens left to score and are excluded from this metric.
-(iii)~A binary \emph{answer-break} outcome: whether the Master, free-running
-greedily from the perturbed prefix, no longer reaches the correct answer;
-since each free run is a full generation, this is evaluated on a random
-subset of 90 of the 345 trials to bound compute. Because flips concentrate at
-positions where the Master itself is uncertain, and perturbing an uncertain
-position disturbs the continuation more regardless of the position's
-importance, all
+Three metrics are recorded per trial:
+\begin{itemize}\setlength\itemsep{1pt}
+  \item \emph{Local disruption}: the mean drop in the log-probability the
+        Master assigns to its own next $K{=}8$ tokens when the perturbed
+        prefix replaces the clean one, in nats per token (a nat is the
+        natural-logarithm unit of information, so a drop of one nat means
+        the Master finds its own continuation a factor of $e$ less likely);
+        $K{=}8$ is long enough to capture the immediate continuation while
+        keeping the metric local.
+  \item \emph{Answer log-probability drop}: the same drop evaluated on the
+        Master's answer tokens (the \texttt{\textbackslash boxed\{\}}
+        content), with the reasoning between the perturbation and the
+        answer teacher-forced, i.e., held fixed; this isolates the part of
+        the perturbation's effect that reaches the outcome. Trials whose
+        perturbed position lies after the answer span have no answer tokens
+        left to score and are excluded from this metric.
+  \item \emph{Answer-break}: a binary outcome, whether the Master,
+        free-running greedily from the perturbed prefix, no longer reaches
+        the correct answer; since each free run is a full generation, this
+        is evaluated on a random subset of 90 of the 345 trials to bound
+        compute.
+\end{itemize}
+
+Because flips concentrate at positions where the Master itself is uncertain,
+and perturbing an uncertain position disturbs the continuation more
+regardless of the position's importance, all
 position comparisons are additionally adjusted for entropy by ordinary least
-squares, $y = \beta_0 + \beta_1\,\mathrm{isflip} + \beta_2\,H_M$, where
+squares (OLS), $y = \beta_0 + \beta_1\,\mathrm{isflip} + \beta_2\,H_M$, where
 $\mathrm{isflip}$ indicates whether the position is a flip and $H_M$ is the
 Shannon entropy (in nats) of the Master's next-token distribution at the
 perturbed position. The regression is fitted over the two \texttt{rank2} arms
@@ -694,14 +724,19 @@ entropy.
 
 \textbf{E3: Span perturbation.} Single tokens may be the wrong granularity for
 reasoning. E3 corrupts an entire reasoning step, approximated here as a span
-of consecutive tokens ending at a line break, since the solutions list one
-step per line. Spans shorter than 4 tokens are discarded as trivial
+of consecutive tokens ending at a line break, since the Master's solutions
+place line breaks between short units such as a sentence or a displayed
+equation. Spans shorter than 4 tokens are discarded as trivial
 fragments. It then lets the Master free-run to the answer, so the downstream
 reasoning may adapt. Steps are ranked by \emph{flip density}, the fraction of
-their tokens that are flips; each of the 3 densest steps per rollout is
-paired with a step of similar depth but low flip density (three per rollout
-to balance coverage of each problem against generation cost, as in E1),
-giving $23 \times 3 = 69$ step pairs. Arms mirror E2: generic
+their tokens that are flips; a fraction rather than a raw count, so that long
+steps are not favored over short steps with concentrated disagreement. Each
+of the 3 steps with the highest flip density per rollout is paired with a
+step of similar depth but low flip density (three per rollout to balance
+coverage of each problem against generation cost, as in E1), giving
+$23 \times 3 = 69$ step pairs.
+
+Arms mirror E2: generic
 corruption (per-position second-choice tokens) of a flip-dense step, generic
 corruption of a control step, and replacement of the flip-dense step by the
 \emph{Novice's version} of it (its preferred token at every position), for
@@ -711,7 +746,9 @@ binary answer-break rate of the Master's free run, evaluated on 150 of the
 regression (with the step's mean entropy as covariate) are reported as in E2,
 where one step pair without answer tokens after the span is excluded.
 
-\textbf{Statistical analysis.} We attach a standard test to each comparison so
+\subsection{Statistical analysis}
+
+We attach a standard test to each comparison so
 that a null result can be quantified rather than merely asserted. Every rate
 is reported with a 95\% Wilson confidence interval (CI). E1's flip and control
 arms are \emph{paired}, since each flip has its own depth-matched control, and
@@ -788,9 +825,9 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
     predicts \emph{lower} success at flips). E2/E3 report the rate at which the
     Master's free run no longer reaches the correct answer after the
     perturbation (H1 predicts \emph{higher} break rates at flips). E2 counts
-    reflect the 90-trial free-run subset, drawn uniformly across its three
-    arms (29/30/31 trials), not all 345 perturbations. No comparison is
-    significant; exact tests in the text.}
+    reflect the 90-trial free-run subset drawn uniformly, to bound compute,
+    across its three arms (29/30/31 trials), not all 345 perturbations. No
+    comparison is significant; exact tests in the text.}
   \label{tab:outcome}
   \begin{tabular}{llcc}
     \toprule
@@ -997,15 +1034,29 @@ kind of interventional validation we applied here.
 Our conclusions are bounded by the setting: one Master (Qwen3.5-4B), one
 Novice family (MLP-only disentanglement, gauge optimized at $\rho{=}0.1$,
 evaluated chiefly at $\rho{=}0.25$), one dataset (MATH-500; 23 Master-correct
-rollouts), greedy decoding, and top-1 flips as the divergence instantiation. The gauge
+rollouts), greedy decoding, and top-1 flips as the divergence instantiation.
+Conditioning on Master-correct rollouts matches the intended use of a
+shaping signal, which applies to verified-correct rollouts, but it skews the
+evaluated set easy: 20 of the 23 solved problems are MATH difficulty levels
+1--3. Harder problems with longer chains of dependent steps might place more
+weight on individual steps, and the Master's 84\% recovery rate after step
+corruption may partly reflect this easier regime; our conclusions are scoped
+to problems the Master solves. The gauge
 optimization was stopped after 40 compute-bounded steps with the cost still
 decreasing (Figure~\ref{fig:tuning}), so a fraction of the observed
 divergence may be avoidable truncation error rather than missing capacity,
 although the optimized gauge already clearly outperforms plain SVD at both
 ranks (Appendix~\ref{app:gauge}). The binary outcome metrics have
-modest power ($\sim$50--115 per arm; correspondingly wide CIs), though the
-null's consistency across three designs and both graded and binary metrics
-argues against a large hidden effect. The regression
+modest power, so their nulls rule out only large effects. At 80\% power (the
+conventional benchmark: an effect of the stated size, if real, would be
+detected in 80\% of repeated experiments), E1's 115 pairs could detect a
+flip--control success asymmetry of about 11 percentage points, E3's 53
+vs.\ 51 free runs a rise in the step break rate from 0.18 to about 0.43, and
+E2's 30-trial free-run arms only larger effects still (assumptions in
+Appendix~\ref{app:stats}). A smaller but practically relevant effect would
+go undetected: the null's consistency across three designs and both graded
+and binary metrics argues against a large hidden effect, but not against a
+modest one. The regression
 standard errors treat positions as independent, although the 230 perturbed
 positions are nested within only 23 rollouts. Ignoring such clustering
 typically understates standard errors, so the reported $t = 2.35$ for the
@@ -1015,12 +1066,14 @@ before building on this effect. The MMLU sweep's fixed
 5-question-per-subtask budget supports relative comparisons across $\rho$,
 not absolute benchmark claims. The answer-tied drop metric
 teacher-forces intervening reasoning and is conservative by design; the E1/E3
-free-run metrics are the complementary, unconstrained tests. Two further
+free-run metrics are the complementary, unconstrained tests. Three further
 measurement caveats apply: newline-delimited spans are a syntactic proxy for
-a semantic reasoning step, and rank-2 substitutions may produce disturbances
+a semantic reasoning step; rank-2 substitutions may produce disturbances
 that the Master repairs mechanically rather than reasoning through, so E2 and
 E3 may measure recoverability from local perturbation more than the necessity
-of a step's content. Finally,
+of a step's content; and the local-disruption window $K{=}8$ is a heuristic
+default, so the local-fragility result's sensitivity to $K$ remains
+unchecked. Finally,
 continuous divergence measures (e.g., per-trajectory Jensen--Shannon mass),
 sampled rather than greedy rollouts, and other Novice constructions remain
 untested and are natural follow-ups.
@@ -1031,7 +1084,7 @@ untested and are natural follow-ups.
 We formalize the Master/Novice framework for densifying verifiable rewards,
 build the tensor-disentanglement pipeline that makes it practical at 4B
 scale, and subject its central premise to a ladder of three
-intervention tests on MATH-500. The premise is not supported: we find no
+intervention tests on Master-solved MATH-500 problems. The premise is not supported: we find no
 evidence that top-1 disagreement between Master and Novice marks
 outcome-critical positions or steps (McNemar $p{=}1.00$; Fisher $p{=}0.80$),
 and the Novice's specific token choices carry no more leverage than
@@ -1196,5 +1249,22 @@ returns an exact $p$-value that remains valid at small counts. For regression
 coefficients, the standard error (SE) quantifies the estimate's uncertainty,
 and the $t$-value (estimate divided by SE) counts how many standard errors
 the estimate lies from zero.
+
+\textbf{Power and minimum detectable effects.} The power of a test is the
+probability that it returns $p < 0.05$ when an effect of a given size truly
+exists; 80\% is the conventional reporting benchmark, and its complement is
+the false-negative rate (a test with 80\% power misses the stated effect in
+20\% of repeated experiments). The minimum detectable effect (MDE) quoted in
+Section~\ref{sec:limitations} is the smallest true effect our sample sizes
+would detect at least 80\% of the time. An observed null is therefore strong
+evidence against effects at or above the MDE, which would very likely have
+been seen, and weak evidence against smaller ones, which the test would
+usually miss. Our MDEs are computed at two-sided $\alpha = 0.05$ with the
+observed control rates as baseline: for E2 and E3 via the standard
+two-proportion normal approximation, and for E1's paired design via the
+exact McNemar test, holding the flip-better pair probability at its observed
+value ($3/115$) while the control-better probability grows. Reasonable
+alternative assumptions shift these numbers modestly; they are calibrated
+estimates, not exact constants.
 
 \end{document}
