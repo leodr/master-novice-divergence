@@ -1,5 +1,6 @@
 \begin{figure*}[t]
 \centering
+\resizebox{0.94\textwidth}{!}{%
 \begin{tikzpicture}[
   x=1cm, y=1cm,
   font=\scriptsize,
@@ -143,21 +144,22 @@
 
 \node[lab, anchor=north west, text width=3.9cm] at (12.2,2.9)
   {\textcolor{badred}{$\boldsymbol\times$}\; flips do \textbf{not} mark the
-   decisive steps --- the outcome is the same in all three experiments};
+   decisive steps: the outcome is the same in all three experiments};
 
 \node[lab, anchor=north west, text width=3.9cm] at (12.2,1.55)
   {\textcolor{okgreen}{\checkmark}\; the one real effect is local: the few
    words right after a flip are disturbed more};
 
-\end{tikzpicture}
-\caption{What we did and what we found: \textbf{(1)}~compress a strong model's
-(\emph{Master's}) MLP weights into a weakened copy, the \emph{Novice};
-\textbf{(2)}~let the Novice re-predict the Master's correct MATH-500
-solutions and mark the disagreements (\emph{flips}); \textbf{(3)}~damage
-solutions at flips versus at depth-matched normal positions and let the
-Master finish. \textbf{(4)}~\emph{Takeaway:} the answer breaks equally often
+\end{tikzpicture}%
+}
+\caption{\textbf{(1)}~Compress the Master's MLP weights into a weakened
+\emph{Novice}; \textbf{(2)}~the Novice re-predicts the Master's correct
+MATH-500 solutions, marking disagreements (\emph{flips});
+\textbf{(3)}~solutions are damaged at flips versus depth-matched normal
+positions and the Master finishes. \textbf{(4)}~\emph{Takeaway:} the answer
+breaks equally often
 either way (shown: whole-step damage; all three experiments agree), so flips
-mark where the Novice's missing capacity acts --- not where the outcome is
-decided --- and this divergence signal cannot densify the reward.}
+mark where the Novice's missing capacity acts, not where the outcome is
+decided, and the top-1 flip signal cannot densify the reward.}
 \label{fig:overview}
 \end{figure*}
