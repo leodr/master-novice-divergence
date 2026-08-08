@@ -332,20 +332,6 @@ largest possible rank of $A(QX)$. Thus $\rho$ is literally the fraction of
 singular directions kept, and the outer $\max$ with 1 guarantees at least one
 is retained.
 
-Concretely, for Qwen3.5-4B's \texttt{down\_proj} (one of the three MLP
-projection matrices in each decoder layer, here
-$X \in \mathbb{R}^{2560 \times 9216}$) the factorization is
-$(l,r,b,c) = (40,64,96,96)$, so that $40 \times 64 = 2560$ and
-$96 \times 96 = 9216$ recover the matrix dimensions; then $Q \in O(2560)$,
-$A(QX) \in \mathbb{R}^{3840 \times 6144}$, and $m = 3840$, so baking at
-$\rho{=}0.25$ keeps $k{=}960$ singular directions. The stored per-layer
-factors $(Q, U, s, V_h)$, namely the gauge together with the singular vectors
-and values $U$, $s$, $V_h$ of $A(Q^{*}X)$, retain the full decomposition, so
-one disentanglement run yields Novices at every $\rho$ by cheap
-re-truncation; an equality test confirms that a Novice baked at $\rho{=}1$
-reproduces the base model's logits (implementation details in
-Appendix~\ref{app:repro}).
-
 The optimization problem \eqref{eq:gauge} admits a closed-form gradient that
 reuses one SVD of $A(QX)$ per step~\citep{wei2025tensor}. Our pipeline
 accelerates it by roughly 30--50$\times$ per layer (Adam on a
@@ -367,7 +353,8 @@ transfers across ranks, are given in Appendix~\ref{app:gauge}.
 \subsection{The \texttt{NoviceModel} pipeline}
 
 Figure~\ref{fig:pipeline} summarizes the \texttt{NoviceModel} lifecycle from
-base model to generating Novice.
+base model to generating Novice; it is a single wrapper class around the base
+model, built on Hugging Face \texttt{transformers}~\citep{wolf-etal-2020-transformers}.
 
 \begin{figure}[H]
 \centering
@@ -440,7 +427,7 @@ available from the authors.
 \subsection{Novice characterization experiments}
 
 \textbf{Learning-rate selection.} Disentanglement quality is sensitive to the
-optimizer learning rate; a sweep on a representative Qwen3.5-0.8B MLP layer
+optimizer learning rate; a sweep on a representative Qwen3.5-4B MLP layer
 selects $10^{-3}$, used for all subsequent disentanglement runs
 (Appendix~\ref{app:lr}).
 
@@ -990,7 +977,7 @@ longer optimization would likely improve the factors further.
 \begin{figure*}[p]
   \centering
   \inputpgf{figures/lr_sweep.pgf}
-  \caption{Learning-rate sweep for tensor disentanglement (Qwen3.5-0.8B MLP
+  \caption{Learning-rate sweep for tensor disentanglement (Qwen3.5-4B MLP
     layer, 200 steps). Mid-range rates balance convergence speed and
     stability; large rates diverge.}
   \label{fig:lr}
@@ -1007,18 +994,6 @@ than that of the matrix exponential it replaces, whose autograd gradient
 requires a Fr\'echet-derivative computation. Because layers are independent,
 all 96 MLP projections are processed in parallel and their factors streamed
 to disk.
-
-\textbf{Pipeline.} A single wrapper class around the base model, built on
-Hugging Face \texttt{transformers}~\citep{wolf-etal-2020-transformers}, owns the
-full lifecycle: load a causal LM, swap its MLP linears, run disentanglement,
-persist the factors to disk, bake to any $\rho$ via \eqref{eq:bake}, and
-delegate \texttt{generate()} to the underlying \texttt{PreTrainedModel},
-preserving compatibility with the key/value cache that makes autoregressive
-decoding efficient. Sharded checkpoints are loaded and baked one layer at a
-time, keeping peak memory near a single model. The pipeline was validated at
-increasing scale, from toy weight matrices through MNIST- and CIFAR-scale
-MLPs and a small GPT-2-style transformer to Qwen3.5-0.8B-Base, before being
-applied to Qwen3.5-4B.
 
 \textbf{Grading.} Final answers are extracted with a balanced-brace
 \texttt{\textbackslash boxed\{\}} parser and compared to the reference with a
@@ -1050,7 +1025,7 @@ are drawn uniformly without replacement via \texttt{rng.sample}.
 Disentanglement quality is sensitive to the optimizer learning rate. We swept
 $\{5{\times}10^{-4}$, $10^{-3}$, $5{\times}10^{-3}$, $7{\times}10^{-3}$,
 $10^{-2}$, $2{\times}10^{-2}$, $5{\times}10^{-2}\}$ for 200 steps on a representative
-Qwen3.5-0.8B MLP layer, tracking reconstruction cost (the discarded singular
+Qwen3.5-4B MLP layer, tracking reconstruction cost (the discarded singular
 energy of \eqref{eq:gauge}, so lower is better) and effective rank (a soft
 count of how many singular directions carry meaningful energy). Small rates
 converge slowly; rates $\geq 10^{-2}$ diverge (reconstruction cost
