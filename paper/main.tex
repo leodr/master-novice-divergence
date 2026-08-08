@@ -725,8 +725,7 @@ fixed by seed before any outcome was generated (Appendix~\ref{app:repro});
 they are compared with Fisher's exact test. For regression coefficients we
 report the estimate, its standard error (SE), and the $t$-value; at our
 sample sizes $|t| \gtrsim 2$ corresponds to $p \lesssim 0.05$.
-Appendix~\ref{app:stats} explains each test; as the next section shows,
-none of these indicators signals an effect.
+Appendix~\ref{app:stats} explains each test.
 
 % --------------------------------------------------
 \section{Results}
@@ -839,7 +838,7 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
 $[0.197, 0.357]$) at depth-matched controls; the two intervals almost entirely
 overlap, and the paired difference is only $+0.009$. Since each flip has its
 own depth-matched control, the informative comparison is within each pair: in
-108 of the 115 pairs both releases had the same outcome (concordant), and the
+108 of the 115 pairs both releases had the same outcome, and the
 seven discordant pairs split 4 (control succeeded, flip failed) versus 3 (the
 reverse).
 McNemar's exact test, which evaluates only these discordant pairs, gives
@@ -852,18 +851,17 @@ itself. H1 is not supported at this granularity.
 
 \begin{figure}[H]
   \centering
-  \inputpgf{figures/e1_release_depth.pgf}
-  \caption{E1 (release-from-here): the Novice takes over a correct Master
+  \resizebox{0.4\textwidth}{!}{\inputpgf{figures/e1_release_depth.pgf}}
+  \caption{E1: the Novice takes over a correct Master
     solution at a chosen position and finishes it. A flip is a position where
-    the Novice's preferred next token differs from the Master's; H1 predicts
+    the Novice's next token differs from the Master's; H1 predicts
     lower success when releasing at flips. Left: Novice completion success
-    after taking over at flip vs.\ depth-matched control positions (115
-    pairs): no difference. Right: success by release-depth quartile (bin 0 = earliest
-    quarter of the rollout). Both arms rise identically with depth: the
-    outcome is governed by how much of the Master's trajectory the Novice
-    inherits, not by whether the release point is a flip.}
+    after taking over at flip vs.\ depth-matched control positions. Right: success by release-depth quartile. Both arms rise identically with depth: the
+    outcome is governed only by how much of the Master's trajectory the Novice
+    inherits.}
   \label{fig:release}
 \end{figure}
+
 
 \textbf{E2: local disruption, no effect on the answer.} Perturbing at a flip disrupts
 the Master's immediate continuation substantially more than at a matched
