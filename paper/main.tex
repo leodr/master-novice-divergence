@@ -76,16 +76,15 @@ capacity-reduced \emph{Novice}, obtained by tensor disentanglement of the
 Master's MLP weights, and asks whether their per-token divergence identifies
 the steps that deserve credit. We contribute (i)~the conceptual framework and
 its central, testable hypothesis; (ii)~an end-to-end \texttt{NoviceModel}
-pipeline that scales tensor disentanglement to Qwen3.5-4B and bakes Novices at
+pipeline that scales tensor disentanglement to Qwen3.5-4B and instantiates Novices at
 any rank fraction from a single checkpoint; and (iii)~a hypothesis-first
 causal evaluation on MATH-500. Three intervention designs of
 increasing strength, namely, handing generation over to the Novice, perturbing single
 tokens, and corrupting whole reasoning steps, consistently fail to reject the
 null: disagreement positions carry no more outcome leverage than depth-matched
-control positions. The only reliable effect is local: disagreement positions are
+control positions - positions where there is no disagreement between master and novice, controlled for by position in the answer. The only reliable effect is local: disagreement positions are
 more fragile in the immediate continuation, and this effect survives
-controlling for Master entropy. We report these negative results
-precisely, characterize a coherence cliff that constrains usable Novice ranks,
+controlling for Master entropy. We report these negative results, characterize a \emph{coherence cliff} (a lower-bound rank-fraction at which the novice outputs are no longer coherent)
 and discuss what they imply for divergence-based reward densification.
 
 \rgkeywords{reinforcement learning, verifiable rewards, credit assignment, tensor disentanglement}
@@ -254,7 +253,7 @@ and discuss what they imply for divergence-based reward densification.
    words right after a flip are disturbed more};
 
 \end{tikzpicture}
-\caption{What we did and what we found: \textbf{(1)}~compress a strong model's
+\caption{Our process: \textbf{(1)}~compress a strong model's
 (\emph{Master's}) MLP weights into a weakened copy, the \emph{Novice};
 \textbf{(2)}~let the Novice re-predict the Master's correct MATH-500
 solutions and mark the disagreements (\emph{flips}); \textbf{(3)}~damage
@@ -287,11 +286,22 @@ RLVR~\citep{wang2025forking}.
 This paper explores a complementary idea: construct a weaker \emph{Novice} from
 the same base weights as the \emph{Master} via tensor disentanglement, compare
 their next-token distributions on successful Master rollouts, and upweight
-positions where the two diverge, on the premise that such steps rely on
-knowledge the Novice lacks and therefore deserve higher credit. Unlike an
+positions where the two diverge. Unlike an
 externally trained reward model, the Novice shares architecture and tokenizer
-with the Master and offers a continuous knob (the retained rank fraction) for
-how weak the comparator should be. Figure~\ref{fig:overview} summarizes the
+with the Master and offers a high-resolution knob (the retained rank fraction) for
+how weak the comparator should be.
+
+This approach relies on the premise that such points of disagreement are ones where the Master relies on knowledge the Novice lacks and therefore deserve higher credit. We express this premise with the following Hypothesis:
+
+\medskip
+\noindent\textbf{H1 (outcome leverage).} \emph{Positions where the Novice
+diverges from the Master have a larger causal effect on final-answer
+correctness than depth-matched positions where the two agree.}
+\medskip
+
+\noindent The goal of this paper is to test this hypothesis: if it holds, the idea has merit and is worth exploring further. If not, the assignment of specific sparser rewards by Master-Novice disagreement cannot be justified at this time.
+
+ Figure~\ref{fig:overview} summarizes the
 approach and its outcome.
 
 Our contributions are of three kinds. \emph{Conceptually}, we formalize the
@@ -303,8 +313,8 @@ chosen rank, and finally generates. This pipeline is validated from MLP-scale pr
 Qwen3.5-4B, together with a ladder of three causal intervention designs for
 testing per-token credit signals before committing to RL training.
 \emph{Empirically}, we characterize the disentanglement and Novice-quality
-landscape (learning-rate sweep, MMLU rank sweep, a generation-level coherence
-cliff) and report a consistent, statistically quantified negative result on the
+landscape with a learning-rate sweep, an MMLU rank sweep and a generation-level coherence
+cliff which identifies a rank fraction at which the novice output degenerates to a point it is unusable. We report a consistent, statistically quantified negative result on the
 central hypothesis, alongside one genuine positive: a local fragility effect at
 disagreement positions that is not explained by Master entropy alone.
 
@@ -413,19 +423,10 @@ indicator.
 
 The intended use of $\delta_t$ is as a shaping signal that concentrates credit
 on high-divergence steps of verified-correct rollouts. Before such a signal
-enters any RL objective, however, its premise must hold. We therefore state it
-as an explicit hypothesis:
-
-\medskip
-\noindent\textbf{H1 (outcome leverage).} \emph{Positions where the Novice
-diverges from the Master have a larger causal effect on final-answer
-correctness than depth-matched positions where the two agree.}
-\medskip
-
-\noindent All credit-assignment experiments in this paper are direct causal
+enters any RL objective, however, the premise H1 we defined earlier must hold. The experiments in this paper are direct
 tests of H1 at increasing intervention strength. We deliberately do not
-evaluate any RL training run: if H1 fails, divergence-weighted advantages
-cannot concentrate gradient where the outcome is decided, and the training
+evaluate any RL training run: if H1 fails, advantages weighted by the divergence between Master and Novice
+cannot be shown to concentrate gradient where the outcome is decided, and the training
 experiment would be uninformative.
 
 \subsection{Constructing the Novice via weight matrix disentanglement}\label{sec:wmd}
