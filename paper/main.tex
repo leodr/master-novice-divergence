@@ -308,7 +308,7 @@ diverges from the Master have a larger effect on final-answer
 correctness than depth-matched positions where the two agree.}
 \medskip
 
-\noindent The goal of this paper is to test this hypothesis: if it holds, the idea has merit and is worth exploring further. If not, the assignment of specific sparser rewards by Master-Novice disagreement cannot be justified at this time.
+\noindent The goal of this paper is to test this hypothesis: if it holds, the idea has merit and is worth exploring further. If not, the assignment of dense per-position rewards by Master/Novice disagreement cannot be justified at this time.
 
  Figure~\ref{fig:overview} summarizes the
 approach and its outcome.
@@ -323,7 +323,7 @@ Qwen3.5-4B, together with a ladder of three intervention designs for
 testing per-token credit signals before committing to RL training.
 \emph{Empirically}, we characterize the disentanglement and Novice-quality
 landscape with a learning-rate sweep, an MMLU rank sweep and a generation-level coherence
-cliff which identifies a rank fraction at which the novice output degenerates to a point it is unusable. We report a consistent, statistically quantified negative result on the
+cliff which identifies a rank fraction at which the Novice's output degenerates to the point of being unusable. We report a consistent, statistically quantified negative result on the
 central hypothesis, alongside one genuine positive: a local fragility effect at
 disagreement positions that is not explained by Master entropy alone.
 
@@ -816,10 +816,10 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
     log-probability of its own next $K{=}8$ tokens after the one-token
     perturbation; answer drop: the same drop on the final-answer tokens with
     the reasoning in between held fixed; H1 predicts larger drops at flips.
-    $H_M$: mean Master entropy at the perturbed position, confirming that
-    flips sit at high-entropy positions, hence the entropy-adjusted analyses
-    in the text. Local disruption differs between flip and control
-    positions, but the answer-tied drop is negligible for every arm.}
+    $H_M$: mean Master entropy at the perturbed position; flips sit at
+    high-entropy positions, motivating the entropy adjustment. Local
+    disruption differs between flip and control positions, but the
+    answer-tied drop is negligible for every arm.}
   \label{tab:graded}
   \begin{tabular}{lccc}
     \toprule
@@ -835,19 +835,17 @@ experiments; Table~\ref{tab:graded} reports E2's graded per-token metrics.
 
 \textbf{E1: no release-point effect.} Success after handing over at a flip was
 30/115 (0.261; Wilson 95\%~CI $[0.189, 0.348]$) versus 31/115 (0.270; CI
-$[0.197, 0.357]$) at depth-matched controls; the two intervals almost entirely
-overlap, and the paired difference is only $+0.009$. Since each flip has its
+$[0.197, 0.357]$) at depth-matched controls; paired difference
+$+0.009$. Since each flip has its
 own depth-matched control, the informative comparison is within each pair: in
 108 of the 115 pairs both releases had the same outcome, and the
 seven discordant pairs split 4 (control succeeded, flip failed) versus 3 (the
 reverse).
-McNemar's exact test, which evaluates only these discordant pairs, gives
-$p = 1.00$: a 4-versus-3 split is exactly what chance would produce, so the
-arms are statistically indistinguishable. Success is instead governed by release depth
+McNemar's exact test on these discordant pairs gives $p = 1.00$: a
+4-versus-3 split is what chance produces. Success is instead governed by release depth
 (Figure~\ref{fig:release}): in the deepest quartile of release positions both
-arms succeed at $\approx 0.7$, in the earliest at $\approx 0$--$0.1$; the
-earlier the Novice takes over, the more of the solution it must produce
-itself. H1 is not supported at this granularity.
+arms succeed at $\approx 0.7$, in the earliest at $\approx 0$--$0.1$. H1 is
+not supported at this granularity.
 
 \begin{figure}[H]
   \centering
@@ -869,57 +867,47 @@ control (2.55 vs.\ 1.60 nats/token, Table~\ref{tab:graded}), a raw gap of
 $+0.94$. Flips sit at higher-entropy positions ($H_M$ 0.41 vs.\ 0.08), and
 entropy independently predicts disruption ($\beta_2 = 0.97$, SE $0.36$,
 $t = 2.69$), but the flip effect persists after the adjustment: $\beta_1 = 0.62$,
-SE $0.26$, $t = 2.35$ ($n{=}230$, the two \texttt{rank2} arms), which clears
-the $|t| \approx 2$ threshold and is therefore unlikely to be sampling noise.
-The raw gap thus decomposes into roughly $0.32$ nats attributable to the
-entropy difference between the groups ($\beta_2$ times the mean-entropy
-difference) and $0.62$ nats associated with flip status itself; consistently,
-the flip$>$control ordering also holds within every entropy tercile (the
-positions split into thirds from lowest to highest entropy, a check that does
-not rely on the regression's linearity). The effect does
-not reach the outcome, however: the answer-tied drop is $\sim$0.001 nats/token
+SE $0.26$, $t = 2.35$ ($n{=}230$, the two \texttt{rank2} arms). The raw gap
+thus splits into roughly $0.32$ nats from the groups' entropy difference and
+$0.62$ nats tied to flip status; the flip$>$control ordering also holds
+within every entropy tercile (Appendix~\ref{app:stats}). The effect does not
+reach the outcome, however: the answer-tied drop is $\sim$0.001 nats/token
 in \emph{every} arm, with no flip effect ($\beta_1 = -0.0002$, SE $0.0017$,
-$t = -0.14$, i.e., essentially zero standard errors from no effect,
-$n{=}225$; 5 trials whose perturbed position lies after the answer span are
-excluded), and the free-run answer-break subset
-shows no coherent ordering (7/29, 3/30, and 6/31 broken answers per arm;
-Fisher's exact test on the two \texttt{rank2} arms gives an odds ratio of
-0.46 with $p = 0.47$, numerically even in the direction opposite to H1, and
-no pairwise comparison approaches significance). The Novice's specific token adds nothing over the Master's own second
-choice at the same position: the paired difference is $+0.017$ nats/token
-locally (Novice larger in only 18\% of pairs) and $+0.0001$ on the answer
-metric (11\% of pairs).
+$t = -0.14$, $n{=}225$ after answer-span exclusions), and the free-run
+answer-break subset shows no coherent ordering (7/29, 3/30, and 6/31 broken
+answers per arm; Fisher OR 0.46, $p = 0.47$; Appendix~\ref{app:stats}). The
+Novice's specific token adds nothing over the Master's own second choice:
+the paired difference is $+0.017$ nats/token locally (Novice larger in only
+18\% of pairs) and $+0.0001$ on the answer metric (11\%).
 
 \textbf{E3: no step-level effect.} Corrupting a flip-dense reasoning step broke
 the final answer in 8/53 free runs (0.151; CI $[0.079, 0.271]$) versus 9/51
 (0.176; CI $[0.096, 0.303]$) for depth-matched low-disagreement steps.
-Fisher's exact test gives an odds ratio of 0.83, which is below 1 and so has
-the flip-dense step breaking the answer slightly \emph{less} often than the
-control, the opposite of what H1 predicts, with $p = 0.80$, far from any
-significance threshold.
-Replacing a flip-dense step by the Novice's own version of it was
+Fisher's exact test gives an odds ratio of 0.83 ($p = 0.80$): the flip-dense
+step broke the answer slightly \emph{less} often, opposite to H1's
+prediction. Replacing a flip-dense step by the Novice's own version was
 indistinguishable from generic corruption of the same step (7/46 vs.\ 8/53;
-Fisher $p = 1.00$; on the paired answer-drop metric the Novice version was
-larger in only 10\% of step pairs). The entropy-adjusted answer-drop OLS is
-likewise null ($\beta_1 = -0.0018$, SE $0.0023$, $t = -0.79$, $n{=}137$). Notably, the Master
-recovered the correct answer after whole-step corruption in 84\% of all trials
-(126/150), independent of the step's flip density.
+Fisher $p = 1.00$), and the entropy-adjusted answer-drop OLS is likewise
+null ($\beta_1 = -0.0018$, SE $0.0023$, $t = -0.79$, $n{=}137$). Notably,
+the Master recovered the correct answer after whole-step corruption in 84\%
+of all trials (126/150), independent of the step's flip density.
 
 % --------------------------------------------------
 \section{Discussion}
 
 \subsection{What the results mean for H1}
 
-Across three intervention designs of increasing strength, we consistently fail to reject the null. Particularly noteworthy is
-E3, whose free-running outcome metric gives downstream reasoning every chance
-to amplify a corrupted step. Our tests provide no evidence that where the
+Across three intervention designs of increasing strength, we consistently
+fail to reject the null, even in E3, whose free-running outcome metric gives
+downstream reasoning every chance to amplify a corrupted step. Our tests
+provide no evidence that where the
 Novice disagrees with the Master is where the outcome is decided: flip
 positions and flip-dense steps showed no more outcome leverage than
 depth-matched controls, and the Novice's specific alternatives were no more
 damaging than the Master's own second choices. On this evidence, naive top-1
 flips used as a per-token or per-step credit weight cannot be expected to
-concentrate learning where it matters; an RL run built on them would most
-likely reproduce a uniform-weighting baseline at extra cost. These
+concentrate learning where it matters; an RL run built on them would likely
+match uniform weighting at extra cost. These
 conclusions are scoped to the top-1 flip instantiation of $\delta_t$. Graded
 variants that weight positions by KL or JS divergence remain untested and
 could rank positions differently; for them, H1 is open rather than
@@ -929,8 +917,8 @@ Two genuine findings survive alongside the negative. First, disagreement
 positions are \emph{locally} special: perturbations there disrupt the
 immediate continuation about 60\% more than at matched positions before any
 adjustment, and roughly two thirds of that gap ($0.62$ of $+0.94$ nats/token)
-persists at equal Master entropy. The flip signal therefore does measure something real
-about where the truncated capacity acts. It just measures local fragility,
+persists at equal Master entropy. The flip signal thus measures something
+real about where the truncated capacity acts, but it is local fragility,
 not outcome leverage. Second, the Master is notably robust on MATH-500:
 even corrupting an entire reasoning step leaves the final answer intact
 84\% of the time. Only a small minority of steps is load-bearing, and
@@ -953,12 +941,11 @@ detects. Meanwhile the mathematically decisive content is either redundantly
 encoded across the trajectory (the Master re-derives it after corruption) or
 concentrated in a few steps that flips do not preferentially mark
 (Section~\ref{sec:limitations} notes the related caveat that our
-interventions may probe recoverability more than necessity). TIP's
-setting~\citep{xu2026tip} explains why the same signal can still be valuable in
-distillation: there, ``hard for the weaker model'' \emph{is} the training
-target, with no claim about outcome leverage being needed. For RL credit
-assignment, that claim must be established separately, and our tests do not
-support it.
+interventions may probe recoverability more than necessity). In distillation
+the same signal can still be valuable, because ``hard for the weaker
+model'' \emph{is} the training target~\citep{xu2026tip}; for RL credit
+assignment, outcome leverage must be established separately, and our tests
+do not support it.
 
 \subsection{Outlook}
 
@@ -971,15 +958,14 @@ work. The Novice itself is a diagnostic construction, not a deployment
 artifact: discarded at test time, it only scores positions during training
 and never generates, so its weakness carries no inference-time cost; the
 same tests apply to any weak comparator sharing the Master's tokenizer, such
-as an earlier checkpoint or a smaller pretrained model. Given H1's failure, we see three defensible directions: (i)~aggregate rather than
-pointwise use of divergence (e.g., trajectory-level divergence mass as a
-difficulty or novelty signal); (ii)~combining divergence with signals whose
-training-time value is established, such as entropy-based token
-selection~\citep{wang2025forking}, where divergence's independent local
-information may still help; and (iii)~learned dense-reward approaches in the
-PRIME family~\citep{cui2025prime}, against which any future training-free
-comparator should be benchmarked. Any of these should be preceded by the same
-kind of interventional validation we applied here.
+as an earlier checkpoint or a smaller pretrained model. Given H1's failure,
+we see three defensible directions: (i)~aggregate use of divergence (e.g.,
+trajectory-level divergence mass as a difficulty signal); (ii)~combining
+divergence's independent local information with entropy-based token
+selection~\citep{wang2025forking}; and (iii)~benchmarking any future
+training-free comparator against learned dense rewards in the PRIME
+family~\citep{cui2025prime}. Each should be preceded by the same
+interventional validation applied here.
 
 % --------------------------------------------------
 \section{Limitations}\label{sec:limitations}
@@ -993,27 +979,21 @@ shaping signal but skews the evaluated set easy (20 of 23 solved problems
 are MATH levels 1--3); harder problems with longer chains of dependent steps
 might weight individual steps more, the 84\% recovery rate may partly
 reflect this easier regime, and our conclusions are scoped to problems the
-Master solves. The gauge
-optimization was stopped after 40 compute-bounded steps with the cost still
-decreasing (Figure~\ref{fig:tuning}), so a fraction of the observed
-divergence may be avoidable truncation error rather than missing capacity,
-although the optimized gauge already clearly outperforms plain SVD at both
-ranks (Appendix~\ref{app:gauge}). The binary outcome metrics have
-modest power, so their nulls rule out only large effects. At 80\% power
-(defined in Appendix~\ref{app:stats}), E1's 115 pairs could detect a
-flip--control success asymmetry of about 11 percentage points, E3's 53
-vs.\ 51 free runs a rise in the step break rate from 0.18 to about 0.43, and
-E2's 30-trial free-run arms only larger effects still (assumptions in
-Appendix~\ref{app:stats}). A smaller but practically relevant effect would
-go undetected: the null's consistency across three designs and both graded
-and binary metrics argues against a large hidden effect, but not against a
-modest one. The regression
-standard errors treat positions as independent, although the 230 perturbed
-positions are nested within only 23 rollouts. Ignoring such clustering
-typically understates standard errors, so the reported $t = 2.35$ for the
-local-fragility effect is best read as an upper bound on the evidence; a
-rollout-clustered or mixed-effects analysis is the appropriate follow-up
-before building on this effect. The MMLU sweep's fixed
+Master solves. The gauge optimization stopped after 40 compute-bounded
+steps with cost still decreasing (Figure~\ref{fig:tuning}), so some observed
+divergence may be avoidable truncation error, though the gauge already
+clearly beats plain SVD (Appendix~\ref{app:gauge}). The binary outcome metrics have
+modest power, so their nulls rule out only large effects. At 80\% power,
+E1's 115 pairs could detect a flip--control success asymmetry of about 11
+percentage points, E3's 53 vs.\ 51 free runs a rise in the step break rate
+from 0.18 to about 0.43, and E2's 30-trial free-run arms only larger effects
+still (definitions and assumptions in Appendix~\ref{app:stats}); smaller but
+practically relevant effects would go undetected, so the consistent nulls
+argue against a large hidden effect, not a modest one. The regression standard errors treat positions as independent although the
+230 perturbed positions are nested within 23 rollouts; such clustering
+typically understates standard errors, so $t = 2.35$ is best read as an
+upper bound on the evidence, with a rollout-clustered analysis the
+appropriate follow-up. The MMLU sweep's fixed
 5-question-per-subtask budget supports relative comparisons across $\rho$,
 not absolute benchmark claims. The answer-tied drop metric
 teacher-forces intervening reasoning and is conservative by design; the E1/E3
@@ -1042,13 +1022,12 @@ and the Novice's specific token choices carry no more leverage than
 generic perturbations. What
 disagreement does mark robustly, and beyond Master entropy, is local
 fragility of the immediate continuation. We report this negative result with
-exact statistics because it de-scopes an otherwise attractive idea: dense
-rewards from a training-free capacity-reduced comparator cannot be assumed to
-target the right tokens, and interventional validation of any proposed credit
-signal should precede RL integration. The released pipeline, which turns one
-disentanglement run into capacity-controlled variants of a model at any
-rank, the coherence-cliff characterization, and the three reusable
-intervention designs make exactly that validation cheap for future signals.
+exact statistics because it narrows an otherwise attractive idea: a
+training-free capacity-reduced comparator cannot be assumed to target the
+right tokens, and interventional validation of any credit signal should
+precede RL integration. The released pipeline (one disentanglement run,
+Novices at any rank), the coherence-cliff characterization, and the three
+reusable intervention designs make exactly that validation cheap.
 
 \section*{AI-Use Statement}
 
@@ -1231,6 +1210,15 @@ returns an exact $p$-value that remains valid at small counts. For regression
 coefficients, the standard error (SE) quantifies the estimate's uncertainty,
 and the $t$-value (estimate divided by SE) counts how many standard errors
 the estimate lies from zero.
+
+\textbf{Secondary statistics.} Entropy terciles split the perturbed
+positions into thirds from lowest to highest Master entropy; that the
+flip$>$control ordering holds within each tercile is a check that does not
+rely on the regression's linearity. In E2's free-run subset, Fisher's exact
+test on the two \texttt{rank2} arms gives an odds ratio of 0.46
+($p = 0.47$), numerically opposite to H1's direction, and no pairwise
+comparison approaches significance. In E3, the Novice's version of a step
+produced the larger answer drop in only 10\% of step pairs.
 
 \textbf{Power and minimum detectable effects.} The power of a test is the
 probability that it returns $p < 0.05$ when an effect of a given size truly
