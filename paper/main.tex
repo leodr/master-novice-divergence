@@ -67,26 +67,27 @@ ana.cunha@tum.de \quad leo.driesch@tum.de \quad ge95gih@mytum.de
 % Abstract
 % --------------------------------------------------
 \begin{rgabstractbox}
-Reinforcement learning for large language models on verifiable tasks (mathematics,
-code, and other domains with binary correctness checks) suffers from reward
-sparsity: only the final outcome receives a signal, leaving credit assignment
-across long chains of thought unresolved. We investigate a Master/Novice
-framework that compares a strong policy to a structurally matched but
-capacity-reduced \emph{Novice}, obtained by tensor disentanglement of the
-Master's MLP weights, and asks whether their top-1 disagreement, the
-positions where the Novice would emit a different next token, identifies
-the steps that deserve credit. We contribute (i)~the conceptual framework and
-its central, testable hypothesis; (ii)~an end-to-end \texttt{NoviceModel}
-pipeline that scales tensor disentanglement to Qwen3.5-4B and instantiates Novices at
-any rank fraction from a single checkpoint; and (iii)~a hypothesis-first
-interventional evaluation on MATH-500. Three intervention designs of
-increasing strength, namely, handing generation over to the Novice, perturbing single
-tokens, and corrupting whole reasoning steps, consistently fail to reject the
-null: top-1 disagreement positions carry no more outcome leverage than depth-matched
-control positions - positions where there is no disagreement between master and novice, controlled for by position in the answer. The only reliable effect is local: disagreement positions are
-more fragile in the immediate continuation, and this effect persists
-when controlling for Master entropy. We report these negative results, characterize a \emph{coherence cliff} (a lower-bound rank-fraction at which the novice outputs are no longer coherent)
-and discuss what they imply for densifying rewards with top-1 disagreement.
+Reinforcement learning for large language models on verifiable tasks suffers
+from reward sparsity: only the final outcome receives a signal, leaving
+credit assignment across long chains of thought unresolved. We investigate a
+Master/Novice framework that compares a strong policy to a structurally
+matched, capacity-reduced \emph{Novice}, obtained by tensor disentanglement
+of the Master's MLP weights, and asks whether top-1 disagreement (positions
+where the Novice would emit a different next token) identifies the steps
+that deserve credit. We contribute (i)~the conceptual framework and its
+central, testable hypothesis; (ii)~an end-to-end pipeline that scales tensor
+disentanglement to Qwen3.5-4B and yields Novices at any rank fraction from a
+single checkpoint; and (iii)~a hypothesis-first interventional evaluation on
+MATH-500. Three interventions of increasing strength (handing generation to
+the Novice, perturbing single tokens, corrupting whole reasoning steps)
+consistently fail to reject the null: top-1 disagreement positions carry no
+more outcome leverage than control positions of similar depth where both
+models agree. The only reliable effect is local: disagreement positions are
+more fragile in the immediate continuation, and this effect persists when
+controlling for Master entropy. We report these negative results,
+characterize a \emph{coherence cliff} (the rank fraction below which Novice
+generations lose coherence), and discuss the implications for densifying
+rewards with top-1 disagreement.
 
 \rgkeywords{reinforcement learning, verifiable rewards, credit assignment, tensor disentanglement}
 \end{rgabstractbox}
@@ -104,6 +105,7 @@ and discuss what they imply for densifying rewards with top-1 disagreement.
 % template's tall abstract box leaves too little room on page 1.
 \begin{figure*}[t]
 \centering
+\resizebox{0.94\textwidth}{!}{%
 \begin{tikzpicture}[
   x=1cm, y=1cm,
   font=\scriptsize,
@@ -253,7 +255,8 @@ and discuss what they imply for densifying rewards with top-1 disagreement.
   {\textcolor{okgreen}{\checkmark}\; the one real effect is local: the few
    words right after a flip are disturbed more};
 
-\end{tikzpicture}
+\end{tikzpicture}%
+}
 \caption{Our process: \textbf{(1)}~compress a strong model's
 (\emph{Master's}) MLP weights into a weakened copy, the \emph{Novice};
 \textbf{(2)}~let the Novice re-predict the Master's correct MATH-500
