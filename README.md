@@ -254,7 +254,7 @@ every token shaded by the Master/Novice divergence.
             An Interventional Test of Master--Novice Divergence for Reward Densification},
   author = {Ramos Cunha, Ana Carolina and Driesch, Leonhard and Evers, Leonard},
   year   = {2026},
-  url    = {https://github.com/leodr/reward-density-quality}
+  url    = {https://github.com/leodr/master-novice-divergence}
 }
 ```
 

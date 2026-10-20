@@ -1,4 +1,4 @@
-# reward-density-quality
+# master-novice-divergence
 
 Research on the Master/Novice framework: disentangling a base LM's MLP weights into
 truncatable factors (Q/U/s/Vh) so a weaker "Novice" can be produced at any chosen rank.

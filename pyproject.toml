@@ -1,5 +1,5 @@
 [project]
-name = "tensor-disentanglement-code"
+name = "master-novice-divergence"
 version = "0.1.0"
 description = "Master/Novice divergence as a dense credit signal for RL with verifiable rewards"
 readme = "README.md"
