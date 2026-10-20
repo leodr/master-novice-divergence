@@ -1,8 +1,9 @@
 [project]
 name = "tensor-disentanglement-code"
 version = "0.1.0"
-description = "Tensor disentanglement experiments"
+description = "Master/Novice divergence as a dense credit signal for RL with verifiable rewards"
 readme = "README.md"
+license = "Apache-2.0"
 requires-python = ">=3.14"
 dependencies = [
     "ipykernel>=7.2.0",
@@ -23,7 +24,7 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
