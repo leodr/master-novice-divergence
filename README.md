@@ -2,7 +2,7 @@
 
 **An interventional test of Master/Novice divergence for reward densification**
 
-Leonhard Driesch, Ana Carolina Ramos Cunha, Leonard Evers
+Ana Carolina Ramos Cunha, Leonhard Driesch, Leonard Evers
 
 [Full write-up (PDF)](paper/main.pdf) · [Novice checkpoint on Hugging Face](https://huggingface.co/leodriesch/novice-qwen3.5-4b-rf0.1)
 
@@ -249,10 +249,10 @@ every token shaded by the Master/Novice divergence.
 ## Citation
 
 ```bibtex
-@misc{driesch2026weakertwin,
+@misc{cunha2026weakertwin,
   title  = {Does a Weaker Twin Know Where an {LLM}'s Reasoning Matters?
             An Interventional Test of Master--Novice Divergence for Reward Densification},
-  author = {Driesch, Leonhard and Ramos Cunha, Ana Carolina and Evers, Leonard},
+  author = {Ramos Cunha, Ana Carolina and Driesch, Leonhard and Evers, Leonard},
   year   = {2026},
   url    = {https://github.com/leodr/reward-density-quality}
 }
