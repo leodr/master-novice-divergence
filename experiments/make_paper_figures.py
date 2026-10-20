@@ -73,14 +73,13 @@ LR_COLORS = {
 FLIP_COLOR = "#c0392b"
 CONTROL_COLOR = "#2980b9"
 
-# E1 aggregate results as reported in the paper (Table 1) and
-# DISAGREEMENT_CREDIT_FINDINGS.md.
+# E1 aggregate results as reported in the paper (Table 1).
 E1_SUCCESS_FLIP = 30 / 115
 E1_SUCCESS_CONTROL = 31 / 115
 E1_PAIRS = 115
 
-# E2 per-arm means as reported in the paper (Table 2) and
-# DISAGREEMENT_CREDIT_FINDINGS.md; the run's per-trial records were not kept.
+# E2 per-arm means as reported in the paper (Table 2); the run's per-trial
+# records were not kept.
 # Order: flip_novice, flip_rank2, control_rank2.
 E2_ARMS = ["flip, Novice token", "flip, rank-2", "control, rank-2"]
 E2_LOCAL_DISRUPTION = [2.56, 2.55, 1.60]

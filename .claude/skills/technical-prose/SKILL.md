@@ -6,9 +6,7 @@ description: Sentence-level rules for technical and academic writing — sentenc
 # Sentence-level rules for technical writing
 
 These are revision rules. Draft first without them, then make a pass with them — applying
-all ten while composing produces paralysis, not prose. The companion
-[`seminar-paper`](../seminar-paper/SKILL.md) skill covers the level above this one:
-structure, page limits, figure and caption strategy.
+all ten while composing produces paralysis, not prose.
 
 ## The rules
 
@@ -88,5 +86,4 @@ not every sentence past a word count.
 - Williams, *Style: Toward Clarity and Grace* — rules 3, 4, 5
 - Gopen & Swan, "The Science of Scientific Writing" — rules 4, 5
 - McEnerney, "The Craft of Writing Effectively" (UChicago, 2014) — rule 10
-- Forbes, "How to Get Your Paper Accepted" — rules 1, 7, 10
-  (bundled at [`../seminar-paper/references/phd-metagame-how-to-get-your-paper-accepted.md`](../seminar-paper/references/phd-metagame-how-to-get-your-paper-accepted.md))
+- Forbes, ["How to Get Your Paper Accepted"](https://maxwellforbes.com/posts/how-to-get-a-paper-accepted/) — rules 1, 7, 10
